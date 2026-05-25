@@ -368,7 +368,36 @@ function saveRABVersion(payload) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const projectId = payload.projectId || "PRJ-" + Utilities.getUuid().substring(0, 8).toUpperCase();
-    getSheetByNameRobust(ss, "Data_Projects").appendRow([projectId, new Date(), payload.currentUser, payload.projectName, payload.clientEmail, payload.totalBudget, payload.userNote || ""]);
+    
+    // Ensure the new header columns exist in Data_Projects
+    let projectSheet = getSheetByNameRobust(ss, "Data_Projects");
+    if (projectSheet) {
+      const colCount = projectSheet.getLastColumn();
+      if (colCount > 0) {
+        const headers = projectSheet.getRange(1, 1, 1, colCount).getValues()[0];
+        if (headers.indexOf("Target_Budget") === -1) {
+          projectSheet.getRange(1, 8, 1, 3).setValues([["Target_Budget", "Contingency_Rate", "Markup_Rate"]]).setFontWeight("bold").setBackground("#1e3a8a").setFontColor("#ffffff");
+        }
+      }
+    }
+
+    const targetBudget = payload.targetBudget || 0;
+    const contingencyRate = payload.contingencyRate || 0;
+    const markupRate = payload.markupRate || 0;
+
+    projectSheet.appendRow([
+      projectId, 
+      new Date(), 
+      payload.currentUser, 
+      payload.projectName, 
+      payload.clientEmail, 
+      payload.totalBudget, 
+      payload.userNote || "",
+      targetBudget,
+      contingencyRate,
+      markupRate
+    ]);
+
     const detailsSheet = getSheetByNameRobust(ss, "RAB_Details");
     const rows = payload.items.map(item => [projectId, item.fixtureName, item.materialName, item.unit || "ea", item.qty, item.unitPrice, item.subtotal]);
     detailsSheet.getRange(detailsSheet.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
@@ -446,9 +475,22 @@ function getProjectDetails(projectId) {
     const pData = projectSheet.getDataRange().getValues();
     let projectMeta = {};
     if (pData.length > 1) {
+      const headers = pData[0];
+      const targetBudgetIdx = headers.indexOf("Target_Budget");
+      const contingencyIdx = headers.indexOf("Contingency_Rate");
+      const markupIdx = headers.indexOf("Markup_Rate");
+
       for (let i = 1; i < pData.length; i++) {
         if (pData[i][0] === projectId) {
-          projectMeta = { projectName: pData[i][3], clientEmail: pData[i][4], totalBudget: pData[i][5], userNote: pData[i][6] || "" };
+          projectMeta = { 
+            projectName: pData[i][3], 
+            clientEmail: pData[i][4], 
+            totalBudget: pData[i][5], 
+            userNote: pData[i][6] || "",
+            targetBudget: targetBudgetIdx !== -1 ? pData[i][targetBudgetIdx] : 0,
+            contingencyRate: contingencyIdx !== -1 ? pData[i][contingencyIdx] : 0,
+            markupRate: markupIdx !== -1 ? pData[i][markupIdx] : 0
+          };
           break;
         }
       }
@@ -681,6 +723,115 @@ function saveNewItemToMaster(itemData) {
     masterSheet.appendRow(rowToWrite);
     writeLog(itemData.currentUser || "Owner", "Owner", "ADD_MASTER", `Menambah ${itemData.itemName} dari Portal`);
     return { success: true, materialId: newId };
+  } catch (e) {
+    return { success: false, error: e.toString() };
+  }
+}
+
+function generateExcelRAB(payload) {
+  try {
+    const projectName = payload.projectName || "Proyek";
+    const projectId = payload.projectId || "PRJ-TEMP";
+    const items = payload.items || [];
+    const contingencyRate = parseFloat(payload.contingencyRate) || 0;
+    const markupRate = parseFloat(payload.markupRate) || 0;
+    
+    // Create a temporary spreadsheet in user's Drive
+    const tempSS = SpreadsheetApp.create(`RAB_${projectName}_${projectId}`);
+    const sheet = tempSS.getSheets()[0];
+    sheet.setName("RAB Estimasi");
+    
+    // Turn on grid lines explicitly
+    sheet.setHasGridlines(true);
+    
+    // Header Style
+    sheet.getRange("A1").setValue("RENCANA ANGGARAN BIAYA (RAB)").setFontSize(16).setFontWeight("bold");
+    sheet.getRange("A2").setValue(`Project ID: ${projectId}`).setFontSize(10).setFontStyle("italic");
+    sheet.getRange("A3").setValue(`Nama Proyek: ${projectName}`).setFontSize(11).setFontWeight("bold");
+    if (payload.clientEmail) {
+      sheet.getRange("A4").setValue(`Klien: ${payload.clientEmail}`).setFontSize(10);
+    }
+    
+    // Column Headers
+    const headers = ["Nama Item/Fixture", "Material", "Satuan", "QTY", "Harga Satuan (Rp)", "Subtotal (Rp)"];
+    sheet.getRange(6, 1, 1, headers.length)
+      .setValues([headers])
+      .setFontWeight("bold")
+      .setBackground("#1e3a8a")
+      .setFontColor("#ffffff")
+      .setHorizontalAlignment("center");
+      
+    // Write Rows
+    let startRow = 7;
+    let dataRangeValues = [];
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      dataRangeValues.push([
+        item.fixtureName,
+        item.materialName,
+        item.unit || "ea",
+        parseFloat(item.qty) || 0,
+        parseFloat(item.unitPrice) || 0,
+        "" // Will be populated with active formula
+      ]);
+    }
+    
+    if (dataRangeValues.length > 0) {
+      sheet.getRange(startRow, 1, dataRangeValues.length, dataRangeValues[0].length).setValues(dataRangeValues);
+      
+      // Inject Active Formulas for Subtotals: =D[Row]*E[Row]
+      for (let i = 0; i < items.length; i++) {
+        const curRow = startRow + i;
+        sheet.getRange(curRow, 6).setFormula(`=D${curRow}*E${curRow}`);
+      }
+    }
+    
+    // Calculate total rows
+    let lastDataRow = startRow + items.length - 1;
+    let baseTotalRow = lastDataRow + 2;
+    let contingencyRow = baseTotalRow + 1;
+    let markupRow = contingencyRow + 1;
+    let grandTotalRow = markupRow + 1;
+    
+    // Base Total
+    sheet.getRange(baseTotalRow, 5).setValue("Estimasi Dasar (Subtotal):").setFontWeight("bold").setHorizontalAlignment("right");
+    sheet.getRange(baseTotalRow, 6).setFormula(`=SUM(F${startRow}:F${lastDataRow})`).setFontWeight("bold");
+    
+    // Contingency
+    sheet.getRange(contingencyRow, 5).setValue(`Contingency (${contingencyRate}%):`).setFontWeight("bold").setHorizontalAlignment("right");
+    sheet.getRange(contingencyRow, 6).setFormula(`=F${baseTotalRow}*${contingencyRate/100}`).setFontWeight("bold");
+    
+    // Markup
+    sheet.getRange(markupRow, 5).setValue(`Contractor Markup (${markupRate}%):`).setFontWeight("bold").setHorizontalAlignment("right");
+    sheet.getRange(markupRow, 6).setFormula(`=(F${baseTotalRow}+F${contingencyRow})*${markupRate/100}`).setFontWeight("bold");
+    
+    // Grand Total
+    sheet.getRange(grandTotalRow, 5).setValue("GRAND TOTAL ANGGARAN:").setFontWeight("bold").setFontSize(12).setHorizontalAlignment("right").setBackground("#f1f5f9");
+    sheet.getRange(grandTotalRow, 6).setFormula(`=F${baseTotalRow}+F${contingencyRow}+F${markupRow}`).setFontWeight("bold").setFontSize(12).setBackground("#f1f5f9");
+    
+    // Formats
+    // QTY Format
+    sheet.getRange(startRow, 4, items.length).setNumberFormat('#,##0.00');
+    // Price Format
+    sheet.getRange(startRow, 5, items.length, 2).setNumberFormat('Rp #,##0');
+    // Summary Row Formats
+    sheet.getRange(baseTotalRow, 6, 4, 1).setNumberFormat('Rp #,##0');
+    
+    // Set auto width for columns
+    for (let c = 1; c <= headers.length; c++) {
+      sheet.autoResizeColumn(c);
+    }
+    
+    SpreadsheetApp.flush();
+    
+    // Get file in Drive to set permissions and get download link
+    const file = DriveApp.getFileById(tempSS.getId());
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    // Generate the download link format for XLSX
+    const downloadUrl = `https://docs.google.com/spreadsheets/d/${tempSS.getId()}/export?format=xlsx`;
+    
+    return { success: true, downloadUrl: downloadUrl };
   } catch (e) {
     return { success: false, error: e.toString() };
   }

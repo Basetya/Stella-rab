@@ -841,9 +841,23 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     row.querySelector(".subtotal-label").innerText="Rp "+sub.toLocaleString('id-ID'); row.setAttribute("data-subtotal",sub); recalculateGrandTotal(); 
   }
   function recalculateGrandTotal() { 
-    const rows = document.getElementById("calculatorBody").children; let grand = 0; let fb = {}; 
-    for(let i=0; i<rows.length; i++) { 
-      const sub = parseFloat(rows[i].getAttribute("data-subtotal"))||0; grand += sub; 
+    const rows = document.getElementById("calculatorBody").children; 
+    let baseTotal = 0; 
+    let fb = {}; 
+    let maxSubtotal = 0;
+    let maxSubtotalRowId = null;
+
+    // Reset previous row highlights/warnings
+    for(let i=0; i<rows.length; i++) {
+      rows[i].classList.remove("border-rose-450", "bg-rose-50/20", "shadow-rose-100/50", "border-rose-400", "bg-rose-50/30");
+      const sub = parseFloat(rows[i].getAttribute("data-subtotal"))||0; 
+      baseTotal += sub; 
+      
+      if (sub > maxSubtotal) {
+        maxSubtotal = sub;
+        maxSubtotalRowId = rows[i].id;
+      }
+
       let name = "";
       if (activeChartMode === "material") {
         name = (rows[i].querySelector(".material-name").value || `Bahan ${i+1}`).trim();
@@ -852,19 +866,97 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
       }
       if(sub>0 && name) fb[name] = (fb[name]||0)+sub; 
     } 
-    const formattedGrand = "Rp " + grand.toLocaleString('id-ID');
+
+    // 1. Get contingency and markup percentages
+    const contingencyRate = parseFloat(document.getElementById("contingencyRate").value)||0;
+    const markupRate = parseFloat(document.getElementById("markupRate").value)||0;
+
+    // 2. Sequential Calculation:
+    // Subtotal After Contingency = Base * (1 + Contingency/100)
+    // Grand Total = Subtotal After Contingency * (1 + Markup/100)
+    const subtotalAfterContingency = baseTotal * (1 + contingencyRate / 100);
+    const grandTotal = subtotalAfterContingency * (1 + markupRate / 100);
+    const multiplierTotal = grandTotal - baseTotal;
+
+    const formattedBase = "Rp " + baseTotal.toLocaleString('id-ID');
+    const formattedMultiplier = (multiplierTotal >= 0 ? "+ " : "- ") + "Rp " + Math.abs(Math.round(multiplierTotal)).toLocaleString('id-ID');
+    const formattedGrand = "Rp " + Math.round(grandTotal).toLocaleString('id-ID');
+
+    // Update labels in UI
+    const baseTotalLabel = document.getElementById("baseTotalLabel");
+    if (baseTotalLabel) baseTotalLabel.innerText = formattedBase;
+
+    const multiplierTotalLabel = document.getElementById("multiplierTotalLabel");
+    if (multiplierTotalLabel) multiplierTotalLabel.innerText = formattedMultiplier;
+
     document.getElementById("grandTotalLabel").innerText = formattedGrand; 
-    document.getElementById("grandTotalLabel").dataset.value = grand; 
+    document.getElementById("grandTotalLabel").dataset.value = Math.round(grandTotal); 
     
     const floatingLabel = document.getElementById("floatingGrandTotalLabel");
     if (floatingLabel) {
       floatingLabel.innerText = formattedGrand;
-      floatingLabel.dataset.value = grand;
+      floatingLabel.dataset.value = Math.round(grandTotal);
     }
     
     const widgetTotal = document.getElementById("floatingWidgetTotal");
     if (widgetTotal) {
       widgetTotal.innerText = formattedGrand;
+    }
+
+    // 3. Target Budget & Budget Warning Analyzer
+    const targetBudgetInput = document.getElementById("targetBudget");
+    const targetBudget = parseFloat(targetBudgetInput ? targetBudgetInput.value : 0)||0;
+    const bar = document.getElementById("budgetProgressBar");
+    const percentText = document.getElementById("budgetAnalysisPercent");
+    const msgText = document.getElementById("budgetMessage");
+    const grandTotalLabelElement = document.getElementById("grandTotalLabel");
+
+    if (targetBudget > 0) {
+      const percent = Math.round((grandTotal / targetBudget) * 100);
+      if (percentText) percentText.innerText = percent + "% Terpakai";
+      
+      if (bar) {
+        bar.style.width = Math.min(percent, 100) + "%";
+        if (percent > 100) {
+          bar.className = "h-full bg-gradient-to-r from-rose-500 to-red-650 transition-all duration-500 w-full animate-pulse";
+          if (msgText) {
+            msgText.innerHTML = `⚠️ OVER BUDGET! Melebihi target sebesar Rp ${(Math.round(grandTotal) - targetBudget).toLocaleString('id-ID')}`;
+            msgText.className = "text-xs font-black text-rose-600 animate-pulse transition-all duration-300";
+          }
+          if (grandTotalLabelElement) {
+            grandTotalLabelElement.className = "text-4xl md:text-5xl font-black text-rose-600 tracking-tighter drop-shadow-[0_0_15px_rgba(239,68,68,0.3)] animate-pulse";
+          }
+          // Highlight the single row with the highest subtotal
+          if (maxSubtotalRowId) {
+            const maxRow = document.getElementById(maxSubtotalRowId);
+            if (maxRow) {
+              maxRow.classList.add("border-rose-400", "bg-rose-50/30", "shadow-rose-100/50", "shadow-lg");
+            }
+          }
+        } else {
+          bar.className = "h-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-500";
+          if (msgText) {
+            msgText.innerHTML = `✓ Anggaran aman dalam batas target (Tersisa Rp ${(targetBudget - Math.round(grandTotal)).toLocaleString('id-ID')}).`;
+            msgText.className = "text-xs font-bold text-emerald-600 transition-all duration-300";
+          }
+          if (grandTotalLabelElement) {
+            grandTotalLabelElement.className = "text-4xl md:text-5xl font-black text-slate-900 tracking-tighter";
+          }
+        }
+      }
+    } else {
+      if (percentText) percentText.innerText = "0% Terpakai";
+      if (bar) {
+        bar.style.width = "0%";
+        bar.className = "h-full bg-slate-200 transition-all duration-500";
+      }
+      if (msgText) {
+        msgText.innerHTML = "Masukkan target anggaran untuk mengaktifkan pelacak.";
+        msgText.className = "text-xs font-semibold text-slate-400 transition-all duration-300";
+      }
+      if (grandTotalLabelElement) {
+        grandTotalLabelElement.className = "text-4xl md:text-5xl font-black text-slate-900 tracking-tighter";
+      }
     }
     
     updateChart(fb); 
@@ -1048,6 +1140,10 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     
     const activeProjId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
     
+    const targetBudget = parseFloat(document.getElementById("targetBudget").value) || 0;
+    const contingencyRate = parseFloat(document.getElementById("contingencyRate").value) || 0;
+    const markupRate = parseFloat(document.getElementById("markupRate").value) || 0;
+
     showLoading(true, "Menyimpan versi draf RAB...");
     google.script.run
       .withFailureHandler(err => { showLoading(false); alert("Gagal menyimpan: " + err.message); })
@@ -1066,6 +1162,9 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
         clientEmail: e,
         userNote: n,
         totalBudget: t,
+        targetBudget: targetBudget,
+        contingencyRate: contingencyRate,
+        markupRate: markupRate,
         items: items,
         currentUser: sessionUser,
         currentRole: sessionRole
@@ -1135,6 +1234,17 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
           document.getElementById("clientEmail").value = res.meta.clientEmail || "";
           document.getElementById("userNote").value = "";
           
+          // Set target budget, contingency rate, and markup rate restored values
+          if (document.getElementById("targetBudget")) {
+            document.getElementById("targetBudget").value = res.meta.targetBudget || "";
+          }
+          if (document.getElementById("contingencyRate")) {
+            document.getElementById("contingencyRate").value = res.meta.contingencyRate || 0;
+          }
+          if (document.getElementById("markupRate")) {
+            document.getElementById("markupRate").value = res.meta.markupRate || 0;
+          }
+
           document.getElementById("projectName").setAttribute("data-active-project-id", projectId);
           
           const tbody = document.getElementById("calculatorBody");
@@ -1384,5 +1494,106 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     recalculateGrandTotal();
     document.getElementById("optimizerOutput").classList.add("hidden");
     alert("✅ Tabel kalkulasi telah diperbarui dengan material hemat alternatif!");
+  }
+
+  function applyPresetTemplate(templateKey) {
+    if (!templateKey) return;
+    const confirmClear = confirm("⚠️ Peringatan!\n\nMemuat templat akan menghapus seluruh baris kalkulasi aktif Anda saat ini. Apakah Anda yakin ingin melanjutkan?");
+    if (!confirmClear) {
+      document.getElementById("presetTemplateSelect").value = "";
+      return;
+    }
+    
+    const tbody = document.getElementById("calculatorBody");
+    tbody.innerHTML = "";
+    
+    const presets = {
+      exhibition_booth: [
+        { fixtureName: "Backdrop Utama", materialName: "Rangka Backdrop Kayu Multipleks", qty: 1.0, estimatedPrice: 2500000, unit: "pcs" },
+        { fixtureName: "Dinding Partisi", materialName: "Multipleks 9mm Tunas / Setara", qty: 12.0, estimatedPrice: 165000, unit: "lembar" },
+        { fixtureName: "Finishing Backdrop", materialName: "Finishing HPL Taco HPL / Setara", qty: 30.0, estimatedPrice: 185000, unit: "m2" },
+        { fixtureName: "Pencahayaan", materialName: "Sorot LED Spotlight 50W", qty: 4.0, estimatedPrice: 220000, unit: "pcs" },
+        { fixtureName: "Meja Receptionist", materialName: "Meja Counter Kayu Minimalis", qty: 1.0, estimatedPrice: 1250000, unit: "unit" }
+      ],
+      cosmetic_counter: [
+        { fixtureName: "Display Cabinet", materialName: "Display Kabinet Akrilik Kaca Tempered", qty: 2.0, estimatedPrice: 4500000, unit: "unit" },
+        { fixtureName: "Ambient Light", materialName: "Led Strip Warm White Philips / Setara", qty: 10.0, estimatedPrice: 75000, unit: "meter" },
+        { fixtureName: "Cermin Rias", materialName: "Cermin Bevel LED Sensor Sentuh", qty: 2.0, estimatedPrice: 850000, unit: "pcs" },
+        { fixtureName: "Kursi Pengunjung", materialName: "Kursi Bar Bulat Hidrolik Besi Chrome", qty: 2.0, estimatedPrice: 450000, unit: "unit" },
+        { fixtureName: "Branding", materialName: "Logo Akrilik Menyala LED Backlit", qty: 1.0, estimatedPrice: 1800000, unit: "unit" }
+      ],
+      office_partition: [
+        { fixtureName: "Partisi Ruangan", materialName: "Partisi Gypsum Knauf 2 Sisi 9mm", qty: 45.0, estimatedPrice: 145000, unit: "m2" },
+        { fixtureName: "Struktur Partisi", materialName: "Rangka Hollow Galvanis 4x4 Tebal 0.3mm", qty: 25.0, estimatedPrice: 75000, unit: "btg" },
+        { fixtureName: "Akses Pintu", materialName: "Pintu Kaca Tempered 12mm Patch Fitting", qty: 1.0, estimatedPrice: 3800000, unit: "unit" },
+        { fixtureName: "Finishing Cat", materialName: "Finishing Cat Tembok Dulux / Setara", qty: 90.0, estimatedPrice: 45000, unit: "m2" },
+        { fixtureName: "Kelistrikan", materialName: "Stop Kontak & Saklar Broco Standard", qty: 8.0, estimatedPrice: 35000, unit: "pcs" }
+      ]
+    };
+    
+    const selectedItems = presets[templateKey];
+    if (selectedItems) {
+      selectedItems.forEach(item => {
+        appendRowUI(item.fixtureName, item.materialName, item.qty, item.estimatedPrice, "#", item.unit || "ea");
+      });
+      recalculateGrandTotal();
+      showToast(`Berhasil memuat templat preset!`, "success");
+      playCompletionChime();
+    }
+    
+    // Reset dropdown selection
+    document.getElementById("presetTemplateSelect").value = "";
+  }
+
+  function downloadExcelRAB() {
+    const p = document.getElementById("projectName").value.trim();
+    const e = document.getElementById("clientEmail").value.trim();
+    const n = document.getElementById("userNote").value.trim();
+    const t = parseFloat(document.getElementById("grandTotalLabel").dataset.value) || 0;
+    
+    if(!p) return alert("Silakan isi Nama Proyek terlebih dahulu!");
+    if(t === 0) return alert("Tabel Lembar Kalkulasi masih kosong!");
+    
+    const rows = document.getElementById("calculatorBody").children;
+    let items = [];
+    for(let i = 0; i < rows.length; i++) {
+      items.push({
+        fixtureName: rows[i].querySelector(".fixture-name").value.trim(),
+        materialName: rows[i].querySelector(".material-name").value.trim(),
+        unit: rows[i].querySelector(".unit-input").value.trim(),
+        qty: parseFloat(rows[i].querySelector(".qty-input").value) || 0,
+        unitPrice: parseFloat(rows[i].querySelector(".custom-price-input").value) || 0,
+        subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
+      });
+    }
+    
+    const activeProjId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
+    const contingencyRate = parseFloat(document.getElementById("contingencyRate").value)||0;
+    const markupRate = parseFloat(document.getElementById("markupRate").value)||0;
+
+    showLoading(true, "Mengekspor data ke Excel (.xlsx) dengan formula aktif...");
+    
+    google.script.run
+      .withFailureHandler(err => { 
+        showLoading(false); 
+        alert("Gagal mengunduh Excel: " + err.message); 
+      })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (res.success) {
+          showToast("Unduhan Excel siap!", "success");
+          window.open(res.downloadUrl, "_blank");
+        } else {
+          alert("Gagal mengunduh Excel: " + res.error);
+        }
+      }).generateExcelRAB({
+        projectId: activeProjId,
+        projectName: p,
+        clientEmail: e,
+        userNote: n,
+        contingencyRate: contingencyRate,
+        markupRate: markupRate,
+        items: items
+      });
   }
 </script>

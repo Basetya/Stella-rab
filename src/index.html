@@ -102,11 +102,13 @@
         <div
           class="bg-white/95 backdrop-blur-xl p-5 md:p-6 rounded-3xl shadow-xl border border-slate-100 space-y-4 w-full min-w-0">
           <h2 class="text-lg font-bold text-slate-900 border-b border-slate-200 pb-2">1. Info Proyek</h2>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+          <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 w-full">
             <input type="text" id="projectName" placeholder="Nama Proyek"
               class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
             <input type="email" id="clientEmail" placeholder="Email Klien (Opsional saat Simpan)"
               class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
+            <input type="number" id="targetBudget" placeholder="Target Anggaran (Rp)" oninput="recalculateGrandTotal()"
+              class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm text-slate-900">
             <input type="text" id="userNote" placeholder="Catatan Versi (contoh: Draft Awal / Kayu Lapis)"
               class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
           </div>
@@ -172,6 +174,16 @@
                     SerpApi (Shopping)</button>
                 </div>
               </div>
+              <!-- Project Presets Dropdown -->
+              <div class="relative inline-block text-left z-20">
+                <select id="presetTemplateSelect" onchange="applyPresetTemplate(this.value)"
+                  class="bg-slate-100 hover:bg-slate-200 border border-slate-350 text-slate-800 text-xs md:text-sm font-bold px-3 py-3 rounded-xl transition cursor-pointer outline-none max-w-[150px] sm:max-w-none">
+                  <option value="" disabled selected>📋 Pilih Templat Preset</option>
+                  <option value="exhibition_booth">Exhibition Booth 3x3 Standard</option>
+                  <option value="cosmetic_counter">Premium Cosmetic Stand</option>
+                  <option value="office_partition">Office Partition Standard</option>
+                </select>
+              </div>
               <button onclick="addNewRow()"
                 class="bg-slate-900 hover:bg-slate-800 text-white text-xs md:text-sm font-bold px-4 py-3 rounded-xl transition shadow-md">➕
                 Manual</button>
@@ -196,15 +208,62 @@
             </table>
           </div>
 
-          <div class="text-right pt-6 border-t border-slate-200 w-full">
-            <span class="text-sm text-slate-500 font-bold uppercase block mb-1">Total Estimasi</span>
-            <span id="grandTotalLabel" class="text-4xl md:text-5xl font-black text-slate-900 tracking-tighter"
-              data-value="0">Rp 0</span>
+          <!-- Multipliers & Budget Analyzer -->
+          <div class="border-t border-slate-200 pt-6 mt-4 grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+            <!-- Left Side: Markup & Contingency Inputs -->
+            <div class="space-y-3">
+              <h3 class="text-xs font-black text-slate-900 uppercase tracking-wider">💰 Pengali Keuntungan & Risiko</h3>
+              <div class="grid grid-cols-2 gap-4">
+                <div class="space-y-1">
+                  <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Contingency (%)</label>
+                  <input type="number" step="0.1" id="contingencyRate" value="0" oninput="recalculateGrandTotal()"
+                    class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm text-slate-900 text-center" placeholder="0">
+                </div>
+                <div class="space-y-1">
+                  <label class="text-[10px] uppercase font-bold text-slate-400 ml-1">Contractor Markup (%)</label>
+                  <input type="number" step="0.1" id="markupRate" value="0" oninput="recalculateGrandTotal()"
+                    class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm text-slate-900 text-center" placeholder="0">
+                </div>
+              </div>
+            </div>
+            <!-- Right Side: Target Budget Visual Progress Bar & Alert Message -->
+            <div class="space-y-3 flex flex-col justify-end">
+              <div class="flex justify-between items-center text-xs font-bold text-slate-650">
+                <span class="text-slate-500 uppercase tracking-wider">Analisis Anggaran:</span>
+                <span id="budgetAnalysisPercent" class="font-mono text-slate-800">0% Terpakai</span>
+              </div>
+              <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200/50 relative">
+                <div id="budgetProgressBar" class="h-full bg-gradient-to-r from-emerald-400 to-emerald-500 transition-all duration-500 w-0"></div>
+              </div>
+              <div id="budgetMessage" class="text-xs font-bold text-emerald-600 transition-all duration-300">
+                ✓ Anggaran aman dalam batas target.
+              </div>
+            </div>
           </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 w-full">
+
+          <!-- Price Summary Detail Breakdowns -->
+          <div class="border-t border-slate-200 pt-6 mt-4 grid grid-cols-1 sm:grid-cols-3 gap-4 text-right">
+            <div>
+              <span class="text-xs text-slate-400 font-bold uppercase block">Estimasi Dasar</span>
+              <span id="baseTotalLabel" class="text-lg font-bold text-slate-700 font-mono">Rp 0</span>
+            </div>
+            <div>
+              <span class="text-xs text-slate-400 font-bold uppercase block">Contingency & Markup</span>
+              <span id="multiplierTotalLabel" class="text-lg font-bold text-slate-700 font-mono">+ Rp 0</span>
+            </div>
+            <div>
+              <span class="text-xs text-slate-400 font-bold uppercase block">Total Akhir RAB</span>
+              <span id="grandTotalLabel" class="text-4xl md:text-5xl font-black text-slate-900 tracking-tighter" data-value="0">Rp 0</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-4 w-full">
             <button onclick="saveRAB()"
               class="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-2xl font-black text-base transition shadow-xl flex items-center justify-center gap-2">💾
               Simpan Versi RAB</button>
+            <button onclick="downloadExcelRAB()"
+              class="w-full bg-amber-500 hover:bg-amber-600 text-white p-4 rounded-2xl font-black text-base transition shadow-xl flex items-center justify-center gap-2">📊
+              Unduh Excel (.xlsx)</button>
             <button onclick="sendEmailRAB()"
               class="w-full bg-emerald-500 hover:bg-emerald-600 text-white p-4 rounded-2xl font-black text-base transition shadow-xl flex items-center justify-center gap-2">✉️
               Kirim PDF ke Klien</button>

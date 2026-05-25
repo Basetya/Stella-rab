@@ -225,22 +225,21 @@ function processAIExtraction(base64Data, mimeType, currentUser, currentRole) {
 
 function processAIExtractionMultiple(files, currentUser, currentRole) {
   try {
-    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!apiKey) throw new Error("API Key belum diset!");
     const masterMaterials = getMaterialData();
     const materialListString = masterMaterials.map(m => `${m.Material_ID}: ${m.Item_Name} (Rp ${m.Unit_Price})`).join("\n");
-    const prompt = `Kamu QS. Ekstrak gambar Gamker dan seluruh dokumen referensi/daftar material terlampir ini secara mendalam dan menyeluruh. Kombinasikan dengan MASTER MATERIAL:\n${materialListString}\nPecah komponen secara detail. Berikan estimasi harga satuan umum di Indonesia berdasarkan seluruh dokumen yang diunggah. OUTPUT JSON MURNI TANPA MARKDOWN: { "rabItems": [ { "fixtureName": "Nama Bagian", "materialName": "Nama Bahan", "unit": "ea/m2/liter/lembar/sak/kg/dll", "qty": 1.00, "estimatedPrice": 0 } ] }`;
-    let parts = [{ text: prompt }];
-    files.forEach(f => {
-      parts.push({ inline_data: { mime_type: f.mimeType, data: f.base64Data.split(',')[1] } });
-    });
-    const payload = { contents: [{ parts: parts }] };
-    const res = UrlFetchApp.fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true });
-    const jsonRes = JSON.parse(res.getContentText());
-    if (jsonRes.error) throw new Error(`Google API Error: ${jsonRes.error.message}`);
-    let aiText = jsonRes.candidates[0].content.parts[0].text;
-    const parsedData = cleanAndParseJSON(aiText);
-    return { success: true, items: parsedData.rabItems };
+    const prompt = `Kamu QS. Ekstrak seluruh dokumen referensi/daftar material terlampir ini secara mendalam dan menyeluruh. Kombinasikan dengan MASTER MATERIAL:\n${materialListString}\nPecah komponen secara detail. Berikan estimasi harga satuan umum di Indonesia berdasarkan seluruh dokumen yang diunggah. OUTPUT JSON MURNI TANPA MARKDOWN: { "rabItems": [ { "fixtureName": "Nama Bagian", "materialName": "Nama Bahan", "unit": "ea/m2/liter/lembar/sak/kg/dll", "qty": 1.00, "estimatedPrice": 0 } ] }`;
+    
+    // Map files for general failover engine
+    const imagesToPass = files.map(f => ({
+      mimeType: f.mimeType,
+      base64Data: f.base64Data
+    }));
+    
+    const failoverResult = callAIChatFailover(prompt, "Kamu adalah Quantity Surveyor (QS) Indonesia yang ahli.", imagesToPass, true);
+    if (!failoverResult.success) throw new Error(failoverResult.error);
+    
+    const parsedData = cleanAndParseJSON(failoverResult.text);
+    return { success: true, items: parsedData.rabItems, providerUsed: failoverResult.provider };
   } catch (error) { return { success: false, error: error.toString() }; }
 }
 
@@ -292,62 +291,43 @@ function researchMaterialCSE(materialName) {
 }
 
 function researchMaterialGeminiSearch(materialName) {
-  const maxRetries = 3;
-  let attempt = 0;
-  let lastError = null;
-  while (attempt < maxRetries) {
-    try {
-      const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-      if (!apiKey) throw new Error("GEMINI_API_KEY belum diset!");
-      
-      const prompt = `Cari harga pasar aktual terbaru untuk material berikut di Indonesia: "${materialName}". Analisis hasil pencarian web Anda, bandingkan beberapa harga (misal dari Tokopedia, Shopee, atau situs material), dan ambil harga rata-rata terendah yang wajar. Berikan jawaban dalam format JSON MURNI tanpa markdown atau format lain:\n{\n  "price": 150000,\n  "unit": "dus/lembar/m2/btg/sak/dll",\n  "sourceUrl": "https://sumber-url.com"\n}\nJika tidak menemukan harga, set "price" ke 0, "unit" ke "", dan "sourceUrl" ke "#".`;
-      const payload = { contents: [{ parts: [{ text: prompt }] }], tools: [{ google_search: {} }] };
-      const res = UrlFetchApp.fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true });
-      
-      const code = res.getResponseCode();
-      const responseText = res.getContentText();
-      if (code === 429 || (code >= 500 && code <= 599)) {
-        attempt++; if (attempt < maxRetries) { Utilities.sleep(10000 * attempt); continue; }
-        throw new Error(`Google API rate limit/error (Status ${code}): ${responseText}`);
-      }
-      
-      const jsonRes = JSON.parse(responseText);
-      if (jsonRes.error) {
-        if (jsonRes.error.code === 429) { attempt++; if (attempt < maxRetries) { Utilities.sleep(10000 * attempt); continue; } }
-        throw new Error(`Google API Error: ${jsonRes.error.message}`);
-      }
-      
-      let aiText = jsonRes.candidates[0].content.parts[0].text;
-      const parsedData = cleanAndParseJSON(aiText);
-      return processResearchResult(materialName, parsedData);
-    } catch (error) { 
-      lastError = error; attempt++;
-      if (attempt < maxRetries) Utilities.sleep(10000 * attempt);
-    }
+  try {
+    const prompt = `Analisis dan cari perkiraan harga pasar aktual terbaru untuk material berikut di Indonesia: "${materialName}". Bandingkan beberapa harga pasar umum (contoh: Tokopedia, Shopee, distributor material lokal), lalu ambil harga rata-rata wajar yang paling akurat. Berikan jawaban dalam format JSON MURNI:\n{\n  "price": 150000,\n  "unit": "dus/lembar/m2/btg/sak/dll",\n  "sourceUrl": "https://sumber-url.com"\n}\nJika tidak menemukan harga, set "price" ke 0, "unit" ke "", dan "sourceUrl" ke "#".`;
+    
+    // We pass Gemini grounding search tool ONLY if provider is GEMINI.
+    const failoverResult = callAIChatFailover(prompt, "Kamu adalah asisten riset QS Indonesia yang akurat.", null, true, true);
+    if (!failoverResult.success) throw new Error(failoverResult.error);
+    
+    const parsedData = cleanAndParseJSON(failoverResult.text);
+    return processResearchResult(materialName, parsedData);
+  } catch (error) {
+    return { success: false, error: error.toString() };
   }
-  return { success: false, error: lastError ? lastError.toString() : "Unknown API rate limit error." };
 }
 
-function brainstormDesign(chatInput, currentItemsJson, imageBase64) {
+function brainstormDesign(chatInput, currentItemsJson, imageBase64, chatHistoryTranscript) {
   try {
-    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!apiKey) throw new Error("GEMINI_API_KEY belum diset!");
-    
-    let parts = [];
-    const prompt = `Anda adalah Co-Designer, World-Class Interior Designer, dan Visual Merchandiser (VM) ahli dengan spesialisasi area kerja di Indonesia. Klien Stella ingin mendiskusikan budget, konsep visual, tata ruang (layouting), display barang, atau modifikasi material desain. Permintaan Diskusi Klien: "${chatInput}"\nRAB Saat Ini: ${JSON.stringify(currentItemsJson)}\nTugas Anda sebagai World-Class Interior Designer & VM di Indonesia:\n1. Berikan opini desain yang berkelas, estetis, dan profesional internasional namun disesuaikan dengan konteks pasar ritel/interior Indonesia.\n2. Berikan ide-ide konkret tentang elemen desain apa saja yang bisa di-update, di-upgrade, disesuaikan, atau dikurangi budgetnya untuk efisiensi biaya.\n3. Ajukan pertanyaan aktif kepada user/klien: "Apakah Anda ingin melakukan update desain secara otomatis pada tabel kalkulasi?"\n4. PENTING: Akhiri seluruh tanggapan/opini Anda dengan sebuah pertanyaan tegas yang menanyakan usulan atau ide rekomendasi mana yang ingin dibahas lebih lanjut oleh klien untuk mulai dikembangkan.\nFormat jawaban harus dalam JSON MURNI tanpa markdown (JANGAN gunakan blok \`\`\`json):\n{\n  "reply": "Pesan edukatif...",\n  "newRab": [ { "fixtureName": "Nama Bagian", "materialName": "Bahan Baru", "qty": 1.00, "unitPrice": 120000 } ]\n}`;
-    parts.push({ text: prompt });
-    if (imageBase64 && imageBase64.indexOf("base64,") !== -1) {
-      const mimeType = imageBase64.substring(imageBase64.indexOf("data:") + 5, imageBase64.indexOf(";base64"));
-      const base64Data = imageBase64.split("base64,")[1];
-      parts.push({ inline_data: { mime_type: mimeType, data: base64Data } });
+    let prompt = `Klien Stella ingin mendiskusikan budget, konsep visual, tata ruang (layouting), display barang, atau modifikasi material desain.
+Permintaan Diskusi Klien: "${chatInput}"
+RAB Saat Ini: ${JSON.stringify(currentItemsJson)}`;
+
+    if (chatHistoryTranscript) {
+      prompt += `\n\nRiwayat Percakapan Sebelumnya (Simpan memori kontekstual ini):\n${chatHistoryTranscript}`;
     }
-    const payload = { contents: [{ parts: parts }] };
-    const res = UrlFetchApp.fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true });
-    const jsonRes = JSON.parse(res.getContentText());
-    if (jsonRes.error) throw new Error(`Google API Error: ${jsonRes.error.message}`);
-    let text = jsonRes.candidates[0].content.parts[0].text;
-    const parsedData = cleanAndParseJSON(text);
-    return { success: true, data: parsedData };
+
+    prompt += `\n\nTugas Anda sebagai World-Class Interior Designer & VM di Indonesia:\n1. Berikan opini desain yang berkelas, estetis, dan profesional internasional namun disesuaikan dengan konteks pasar ritel/interior Indonesia.\n2. Berikan ide-ide konkret tentang elemen desain apa saja yang bisa di-update, di-upgrade, disesuaikan, atau dikurangi budgetnya untuk efisiensi biaya.\n3. Ajukan pertanyaan aktif kepada user/klien: "Apakah Anda ingin melakukan update desain secara otomatis pada tabel kalkulasi?"\n4. PENTING: Akhiri seluruh tanggapan/opini Anda dengan sebuah pertanyaan tegas yang menanyakan usulan atau ide rekomendasi mana yang ingin dibahas lebih lanjut oleh klien untuk mulai dikembangkan.\nFormat jawaban harus dalam JSON MURNI:\n{\n  "reply": "Pesan edukatif...",\n  "newRab": [ { "fixtureName": "Nama Bagian", "materialName": "Bahan Baru", "qty": 1.00, "unitPrice": 120000 } ]\n}`;
+
+    let images = null;
+    if (imageBase64 && imageBase64.indexOf("data:") !== -1) {
+      const mimeType = imageBase64.substring(imageBase64.indexOf("data:") + 5, imageBase64.indexOf(";base64"));
+      images = [{ mimeType: mimeType, base64Data: imageBase64 }];
+    }
+    
+    const failoverResult = callAIChatFailover(prompt, "Anda adalah Co-Designer, World-Class Interior Designer, dan Visual Merchandiser (VM) ahli di Indonesia.", images, true);
+    if (!failoverResult.success) throw new Error(failoverResult.error);
+    
+    const parsedData = cleanAndParseJSON(failoverResult.text);
+    return { success: true, data: parsedData, providerUsed: failoverResult.provider };
   } catch (e) { return { success: false, error: e.toString() }; }
 }
 
@@ -531,16 +511,13 @@ function generateAndSendFiles(projectId, payload) {
 
 function optimizeRAB(currentItemsJson) {
   try {
-    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
-    if (!apiKey) throw new Error("GEMINI_API_KEY belum diset!");
-    const prompt = `Anda adalah Ahli Quantity Surveyor (QS) senior di Indonesia. Diberikan daftar RAB:\n${JSON.stringify(currentItemsJson)}\nTemukan 2-3 item termahal, berikan alternatif lokal lebih murah, buat ulang daftar RAB baru dalam format JSON murni tanpa markdown: { "explanation": "Penjelasan...", "optimizedRab": [ { "fixtureName": "Nama Bagian", "materialName": "Alternatif Material Hemat", "qty": 1.00, "unitPrice": 120000 } ] }`;
-    const payload = { contents: [{ parts: [{ text: prompt }] }] };
-    const res = UrlFetchApp.fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, { method: "post", contentType: "application/json", payload: JSON.stringify(payload), muteHttpExceptions: true });
-    const jsonRes = JSON.parse(res.getContentText());
-    if (jsonRes.error) throw new Error(`Google API Error: ${jsonRes.error.message}`);
-    let text = jsonRes.candidates[0].content.parts[0].text;
-    const parsedData = cleanAndParseJSON(text);
-    return { success: true, data: parsedData };
+    const prompt = `Diberikan daftar RAB:\n${JSON.stringify(currentItemsJson)}\nTemukan 2-3 item termahal, berikan alternatif lokal lebih murah, buat ulang daftar RAB baru dalam format JSON murni: { "explanation": "Penjelasan...", "optimizedRab": [ { "fixtureName": "Nama Bagian", "materialName": "Alternatif Material Hemat", "qty": 1.00, "unitPrice": 120000 } ] }`;
+    
+    const failoverResult = callAIChatFailover(prompt, "Anda adalah Ahli Quantity Surveyor (QS) senior di Indonesia.", null, true);
+    if (!failoverResult.success) throw new Error(failoverResult.error);
+    
+    const parsedData = cleanAndParseJSON(failoverResult.text);
+    return { success: true, data: parsedData, providerUsed: failoverResult.provider };
   } catch (e) { return { success: false, error: e.toString() }; }
 }
 
@@ -835,4 +812,286 @@ function generateExcelRAB(payload) {
   } catch (e) {
     return { success: false, error: e.toString() };
   }
+}
+
+// =========================================================================
+// HIGH-RESILIENCY MULTI-PROVIDER AI FAILOVER ENGINE (FREETIER MAXIMIZATION)
+// urutan prioritas: Gemini -> Groq -> OpenRouter -> DeepSeek
+// =========================================================================
+
+function callAIChatFailover(prompt, systemInstruction, images, isJson, useSearchTool) {
+  const props = PropertiesService.getScriptProperties();
+  const keys = {
+    gemini: props.getProperty('GEMINI_API_KEY'),
+    groq: props.getProperty('GROQ_API_KEY'),
+    openrouter: props.getProperty('OPENROUTER_API_KEY'),
+    deepseek: props.getProperty('DEEPSEEK_API_KEY')
+  };
+  
+  const providers = ['gemini', 'groq', 'openrouter', 'deepseek'];
+  let lastError = "";
+  
+  for (let i = 0; i < providers.length; i++) {
+    const provider = providers[i];
+    const key = keys[provider];
+    if (!key) {
+      Logger.log(`Skipping provider ${provider} because API key is not configured.`);
+      continue;
+    }
+    
+    try {
+      Logger.log(`Attempting AI call with provider: ${provider}...`);
+      let result = null;
+      
+      if (provider === 'gemini') {
+        result = callGeminiDirect(key, prompt, systemInstruction, images, isJson, useSearchTool);
+      } else if (provider === 'groq') {
+        result = callGroqDirect(key, prompt, systemInstruction, images, isJson);
+      } else if (provider === 'openrouter') {
+        result = callOpenRouterDirect(key, prompt, systemInstruction, images, isJson);
+      } else if (provider === 'deepseek') {
+        result = callDeepSeekDirect(key, prompt, systemInstruction, images, isJson);
+      }
+      
+      if (result && result.success) {
+        Logger.log(`AI call successfully answered by: ${provider}!`);
+        return { success: true, text: result.text, provider: provider.toUpperCase() };
+      } else {
+        lastError = result ? result.error : "Unknown error";
+        Logger.log(`Provider ${provider} failed: ${lastError}`);
+      }
+    } catch (e) {
+      lastError = e.toString();
+      Logger.log(`Exception during call to ${provider}: ${lastError}`);
+    }
+  }
+  
+  return { success: false, error: `Seluruh AI provider (Gemini, Groq, OpenRouter, DeepSeek) gagal merespon atau melebihi limit kuota. Error terakhir: ${lastError}` };
+}
+
+function callGeminiDirect(key, prompt, systemInstruction, images, isJson, useSearchTool) {
+  let parts = [];
+  if (systemInstruction) {
+    parts.push({ text: "SYSTEM INSTRUCTION:\n" + systemInstruction + "\n\nUSER REQUEST:\n" + prompt });
+  } else {
+    parts.push({ text: prompt });
+  }
+  
+  if (images && images.length > 0) {
+    images.forEach(img => {
+      const cleanData = img.base64Data.indexOf("base64,") !== -1 ? img.base64Data.split("base64,")[1] : img.base64Data;
+      parts.push({
+        inline_data: {
+          mime_type: img.mimeType,
+          data: cleanData
+        }
+      });
+    });
+  }
+  
+  const payload = { contents: [{ parts: parts }] };
+  if (useSearchTool) {
+    payload.tools = [{ google_search: {} }];
+  }
+  
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`;
+  const res = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
+  const code = res.getResponseCode();
+  const responseText = res.getContentText();
+  
+  if (code !== 200) {
+    return { success: false, error: `Gemini Status ${code}: ${responseText}` };
+  }
+  
+  const json = JSON.parse(responseText);
+  if (json.error) {
+    return { success: false, error: json.error.message };
+  }
+  
+  if (json.candidates && json.candidates[0] && json.candidates[0].content && json.candidates[0].content.parts[0]) {
+    return { success: true, text: json.candidates[0].content.parts[0].text };
+  }
+  
+  return { success: false, error: "Empty response from Gemini" };
+}
+
+function callGroqDirect(key, prompt, systemInstruction, images, isJson) {
+  const hasImage = images && images.length > 0;
+  const modelName = hasImage ? "llama-3.2-11b-vision-preview" : "llama-3.3-70b-versatile";
+  
+  let messages = [];
+  if (systemInstruction) {
+    messages.push({ role: "system", content: systemInstruction });
+  }
+  
+  if (hasImage) {
+    let contentParts = [{ type: "text", text: prompt }];
+    images.forEach(img => {
+      const cleanBase64 = img.base64Data.indexOf("base64,") !== -1 ? img.base64Data.split("base64,")[1] : img.base64Data;
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: `data:${img.mimeType};base64,${cleanBase64}` }
+      });
+    });
+    messages.push({ role: "user", content: contentParts });
+  } else {
+    messages.push({ role: "user", content: prompt });
+  }
+  
+  const payload = {
+    model: modelName,
+    messages: messages
+  };
+  if (isJson) {
+    payload.response_format = { type: "json_object" };
+  }
+  
+  const url = "https://api.groq.com/openai/v1/chat/completions";
+  const res = UrlFetchApp.fetch(url, {
+    method: "post",
+    headers: {
+      "Authorization": "Bearer " + key,
+      "Content-Type": "application/json"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
+  const code = res.getResponseCode();
+  const responseText = res.getContentText();
+  
+  if (code !== 200) {
+    return { success: false, error: `Groq Status ${code}: ${responseText}` };
+  }
+  
+  const json = JSON.parse(responseText);
+  if (json.error) {
+    return { success: false, error: json.error.message };
+  }
+  
+  if (json.choices && json.choices[0] && json.choices[0].message) {
+    return { success: true, text: json.choices[0].message.content };
+  }
+  
+  return { success: false, error: "Empty response from Groq" };
+}
+
+function callOpenRouterDirect(key, prompt, systemInstruction, images, isJson) {
+  const hasImage = images && images.length > 0;
+  const modelName = "google/gemini-2.5-flash:free";
+  
+  let messages = [];
+  if (systemInstruction) {
+    messages.push({ role: "system", content: systemInstruction });
+  }
+  
+  if (hasImage) {
+    let contentParts = [{ type: "text", text: prompt }];
+    images.forEach(img => {
+      const cleanBase64 = img.base64Data.indexOf("base64,") !== -1 ? img.base64Data.split("base64,")[1] : img.base64Data;
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: `data:${img.mimeType};base64,${cleanBase64}` }
+      });
+    });
+    messages.push({ role: "user", content: contentParts });
+  } else {
+    messages.push({ role: "user", content: prompt });
+  }
+  
+  const payload = {
+    model: modelName,
+    messages: messages
+  };
+  if (isJson) {
+    payload.response_format = { type: "json_object" };
+  }
+  
+  const url = "https://openrouter.ai/api/v1/chat/completions";
+  const res = UrlFetchApp.fetch(url, {
+    method: "post",
+    headers: {
+      "Authorization": "Bearer " + key,
+      "Content-Type": "application/json",
+      "HTTP-Referer": "https://stella-rab.vercel.app/",
+      "X-Title": "Stella RAB Portal"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
+  const code = res.getResponseCode();
+  const responseText = res.getContentText();
+  
+  if (code !== 200) {
+    return { success: false, error: `OpenRouter Status ${code}: ${responseText}` };
+  }
+  
+  const json = JSON.parse(responseText);
+  if (json.error) {
+    return { success: false, error: json.error.message };
+  }
+  
+  if (json.choices && json.choices[0] && json.choices[0].message) {
+    return { success: true, text: json.choices[0].message.content };
+  }
+  
+  return { success: false, error: "Empty response from OpenRouter" };
+}
+
+function callDeepSeekDirect(key, prompt, systemInstruction, images, isJson) {
+  const hasImage = images && images.length > 0;
+  let fullPrompt = prompt;
+  if (hasImage) {
+    fullPrompt = "[Notice: Image analysis requested but DeepSeek fallback is text-only. Processing text prompt.]\n" + prompt;
+  }
+  
+  let messages = [];
+  if (systemInstruction) {
+    messages.push({ role: "system", content: systemInstruction });
+  }
+  messages.push({ role: "user", content: fullPrompt });
+  
+  const payload = {
+    model: "deepseek-chat",
+    messages: messages
+  };
+  if (isJson) {
+    payload.response_format = { type: "json_object" };
+  }
+  
+  const url = "https://api.deepseek.com/chat/completions";
+  const res = UrlFetchApp.fetch(url, {
+    method: "post",
+    headers: {
+      "Authorization": "Bearer " + key,
+      "Content-Type": "application/json"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  
+  const code = res.getResponseCode();
+  const responseText = res.getContentText();
+  
+  if (code !== 200) {
+    return { success: false, error: `DeepSeek Status ${code}: ${responseText}` };
+  }
+  
+  const json = JSON.parse(responseText);
+  if (json.error) {
+    return { success: false, error: json.error.message };
+  }
+  
+  if (json.choices && json.choices[0] && json.choices[0].message) {
+    return { success: true, text: json.choices[0].message.content };
+  }
+  
+  return { success: false, error: "Empty response from DeepSeek" };
 }

@@ -972,17 +972,36 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
       qty: parseFloat(r.querySelector('.qty-input').value)||0, 
       unitPrice: parseFloat(r.querySelector('.custom-price-input').value)||0 
     });
-    const chatHistory = document.getElementById("chatHistory"); chatHistory.innerHTML += `<div class="text-right mb-2"><span class="bg-indigo-600 text-white p-2 rounded-xl inline-block">${text}</span></div>`; input.value = "";
+    
+    // Extract recent chat history from screen to pass as a fresh memory context to fallback engines!
+    const chatHistory = document.getElementById("chatHistory");
+    const historyDivs = Array.from(chatHistory.children);
+    let chatHistoryTranscript = [];
+    historyDivs.forEach(d => {
+      const isUser = d.classList.contains("text-right");
+      const isAssistant = d.classList.contains("text-left");
+      if (isUser) {
+        chatHistoryTranscript.push("User: " + d.innerText.trim());
+      } else if (isAssistant) {
+        chatHistoryTranscript.push("Assistant: " + d.innerText.replace(/^🤖\s*/, "").trim());
+      }
+    });
+    const historyTranscriptString = chatHistoryTranscript.slice(-10).join("\n"); // Pass last 10 messages for token efficiency
+
+    chatHistory.innerHTML += `<div class="text-right mb-2"><span class="bg-indigo-600 text-white p-2 rounded-xl inline-block">${text}</span></div>`; input.value = "";
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+    
     showLoading(true, "AI Mensimulasikan Ide Desain Baru...");
     google.script.run.withSuccessHandler(res => {
       showLoading(false);
       if(res.success) {
-        chatHistory.innerHTML += `<div class="text-left mb-2"><span class="bg-indigo-50 text-indigo-900 p-2 rounded-xl inline-block">🤖 ${res.data.reply}</span></div>`; chatHistory.scrollTop = chatHistory.scrollHeight;
+        const providerTag = res.providerUsed ? ` [${res.providerUsed}]` : "";
+        chatHistory.innerHTML += `<div class="text-left mb-2"><span class="bg-indigo-50 text-indigo-900 p-2 rounded-xl inline-block">🤖${providerTag} ${res.data.reply}</span></div>`; chatHistory.scrollTop = chatHistory.scrollHeight;
         document.getElementById("calculatorBody").innerHTML = ""; res.data.newRab.forEach(i => appendRowUI(i.fixtureName, i.materialName, i.qty, i.unitPrice, "#", i.unit || "ea")); recalculateGrandTotal();
       } else {
         alert("Gagal brainstorm: " + res.error);
       }
-    }).brainstormDesign(text, currentRab, currentUploadedImageBase64);
+    }).brainstormDesign(text, currentRab, currentUploadedImageBase64, historyTranscriptString);
   }
 
   function changeChartMode(mode) {

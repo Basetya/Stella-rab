@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <base target="_top">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <?!= include('CSS'); ?>
+</head>
+
+<body class="blueprint-bg font-sans text-slate-800 min-h-screen w-full m-0 p-0">
+  <!-- Floating Background Progress Pill -->
+  <div id="floatingProgressPill" class="fixed top-6 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 backdrop-blur-xl border border-white/10 px-5 py-3 rounded-full shadow-2xl text-white flex items-center gap-3 text-xs font-bold transition-all duration-300 scale-0 opacity-0 pointer-events-none">
+    <span class="flex h-2.5 w-2.5 relative">
+      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+      <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-indigo-500"></span>
+    </span>
+    <span class="tracking-wide">Validasi Latar Belakang:</span>
+    <span id="progressPillText" class="text-indigo-300 font-mono font-black">Menunggu...</span>
+    <button onclick="stopBackgroundValidation()" class="bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 border border-rose-500/30 px-3 py-1 rounded-full text-[10px] transition font-black ml-2 cursor-pointer">Hentikan ✕</button>
+  </div>
+
+  <div id="loginScreen" class="fixed inset-0 flex justify-center items-center p-3 z-40 w-full login-cover-bg">
+    <div
+      class="glass-card-dark p-8 rounded-[2.5rem] shadow-2xl w-[95%] max-w-md space-y-6 mx-auto border border-white/10 text-white">
+      <div class="text-center">
+        <h1
+          class="text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-200 to-emerald-400">
+          Stella's RAB</h1>
+        <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mt-2">Architectural Estimate Engine</p>
+      </div>
+      <div class="space-y-4">
+        <div class="space-y-1">
+          <label class="text-[10px] uppercase font-bold text-slate-400 ml-2">Username</label>
+          <input type="text" id="inputUser" placeholder="Masukkan username..."
+            class="w-full p-4 bg-slate-950/50 border border-white/10 rounded-2xl outline-none focus:border-blue-500 text-base font-bold text-white transition">
+        </div>
+        <div class="space-y-1">
+          <label class="text-[10px] uppercase font-bold text-slate-400 ml-2">Password</label>
+          <input type="password" id="inputPass" placeholder="••••••••"
+            class="w-full p-4 bg-slate-950/50 border border-white/10 rounded-2xl outline-none focus:border-blue-500 text-base font-bold text-white transition">
+        </div>
+        <button onclick="executeLogin()"
+          class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white p-4 rounded-2xl text-lg font-black transition shadow-xl shadow-blue-500/20 mt-2">Masuk
+          Portal 🚀</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="appScreen"
+    class="w-full max-w-7xl mx-auto space-y-4 md:space-y-6 p-3 sm:p-4 md:p-6 hidden overflow-x-hidden">
+    <div
+      class="bg-slate-900/80 backdrop-blur-xl p-5 md:p-6 rounded-3xl shadow-2xl text-white flex flex-col md:flex-row justify-between items-center gap-4 border border-white/10 w-full min-w-0">
+      <div class="text-center md:text-left w-full md:w-auto">
+        <h1
+          class="text-3xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+          Stella's RAB Portal</h1>
+        <p class="text-slate-400 text-sm mt-1">Hello, <span id="sessUser" class="font-bold text-white"></span> (<span
+            id="sessRole" class="text-blue-300"></span>)</p>
+      </div>
+      <div class="flex flex-wrap justify-center gap-2 w-full md:w-auto">
+        <button onclick="toggleView('workspaceGrid')"
+          class="flex-1 md:flex-none bg-white/10 hover:bg-white/20 border border-white/10 text-xs px-4 py-3 rounded-xl transition font-bold">🏠
+          Halaman Utama</button>
+        <button onclick="openHistory()"
+          class="flex-1 md:flex-none bg-white/10 hover:bg-white/20 border border-white/10 text-xs px-4 py-3 rounded-xl transition font-bold">📂
+          Arsip RAB</button>
+        <button onclick="window.location.reload()"
+          class="bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs px-4 py-3 rounded-xl transition">🚪</button>
+      </div>
+    </div>
+
+    <div id="workspaceGrid" class="space-y-4 md:space-y-6 view-section w-full min-w-0">
+      <!-- Hero Banner (Herborist) -->
+      <div
+        class="w-full rounded-[2rem] overflow-hidden shadow-xl border border-white/5 portfolio-hero-banner p-6 md:p-10 flex flex-col justify-end min-h-[180px] md:min-h-[260px] text-white">
+        <div class="max-w-xl space-y-2">
+          <span
+            class="bg-blue-600/90 text-white font-bold text-[10px] uppercase tracking-widest px-3 py-1 rounded-full w-fit">Budgeting
+            Assistant</span>
+          <h2 class="text-2xl md:text-4xl font-black tracking-tight leading-tight drop-shadow-md">Active Workspace:
+            Stella's Design Engine</h2>
+          <p class="text-slate-200 text-xs md:text-sm font-medium drop-shadow-sm">Transforming blueprints and mockups
+            into structured, high-accuracy quantity surveyor price lists with instant AI market integration.</p>
+        </div>
+      </div>
+      <div class="space-y-4 md:space-y-6 w-full min-w-0 flex flex-col overflow-hidden">
+        <div
+          class="bg-white/95 backdrop-blur-xl p-5 md:p-6 rounded-3xl shadow-xl border border-slate-100 space-y-4 w-full min-w-0">
+          <h2 class="text-lg md:text-xl font-black text-slate-900">🤖 STEP 1: Bedah Cepat Desain</h2>
+          <div class="flex flex-col sm:flex-row gap-3 bg-slate-50 p-2 md:p-3 rounded-2xl w-full">
+            <input type="file" id="aiFileInput" accept=".pdf, image/*" multiple
+              class="w-full text-sm text-slate-500 file:mr-4 file:py-3 file:px-4 file:rounded-xl file:bg-blue-600 file:text-white"
+              title="Pilih gambar desain atau dokumen material (bisa beberapa file sekaligus)">
+            <button onclick="triggerAI()"
+              class="w-full sm:w-auto bg-slate-900 text-white px-8 py-3 rounded-xl text-sm font-bold shadow-md transition whitespace-nowrap">Bedah
+              Desain ✨</button>
+          </div>
+        </div>
+
+        <div
+          class="bg-white/95 backdrop-blur-xl p-5 md:p-6 rounded-3xl shadow-xl border border-slate-100 space-y-4 w-full min-w-0">
+          <h2 class="text-lg font-bold text-slate-900 border-b border-slate-200 pb-2">1. Info Proyek</h2>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full">
+            <input type="text" id="projectName" placeholder="Nama Proyek"
+              class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
+            <input type="email" id="clientEmail" placeholder="Email Klien (Opsional saat Simpan)"
+              class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
+            <input type="text" id="userNote" placeholder="Catatan Versi (contoh: Draft Awal / Kayu Lapis)"
+              class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
+          </div>
+        </div>
+
+        <!-- Collapsible Batch Validation Hub -->
+        <div id="batchHubSection" class="hidden bg-white/90 backdrop-blur-xl p-5 md:p-6 rounded-3xl shadow-xl border border-slate-100 space-y-4 w-full min-w-0 transition-all duration-300">
+          <div class="flex justify-between items-center border-b border-slate-200 pb-3 flex-wrap gap-2">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl">🌐</span>
+              <div>
+                <h3 class="text-base font-black text-slate-900">Batch Validation Hub</h3>
+                <p class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Rate Limit & Timeout Resiliency</p>
+              </div>
+            </div>
+            <button onclick="closeBatchHub()" class="text-slate-400 hover:text-slate-600 text-xs bg-slate-100 hover:bg-slate-200 p-1.5 rounded-full transition font-black">✕</button>
+          </div>
+          
+          <div class="flex flex-wrap items-center gap-3 text-xs">
+            <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl font-bold">
+              <span class="text-slate-500">Ukuran Batch:</span>
+              <select id="batchSizeSelect" onchange="generateBatchesUI()" class="bg-transparent border-0 outline-none cursor-pointer text-indigo-600 font-bold">
+                <option value="3">3 Item</option>
+                <option value="5" selected>5 Item</option>
+                <option value="10">10 Item</option>
+              </select>
+            </div>
+            <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 px-3 py-2.5 rounded-xl font-bold">
+              <span class="text-slate-500">Jeda Keamanan:</span>
+              <select id="batchDelaySelect" class="bg-transparent border-0 outline-none cursor-pointer text-indigo-600 font-bold">
+                <option value="2000">2 Detik</option>
+                <option value="5000" selected>5 Detik (Direkomendasikan)</option>
+                <option value="10000">10 Detik</option>
+                <option value="20000">20 Detik</option>
+                <option value="30000">30 Detik</option>
+              </select>
+            </div>
+            <button onclick="validateAllBatchesSequentially()" class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold px-5 py-2.5 rounded-xl transition shadow-md flex items-center gap-1.5 sm:ml-auto w-full sm:w-auto justify-center">🚀 Jalankan Semua Batch</button>
+          </div>
+          
+          <div id="batchesContainer" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 w-full pt-2">
+            <!-- Dynamic batch items will be injected here -->
+          </div>
+        </div>
+
+        <div
+          class="bg-white/95 backdrop-blur-xl p-4 md:p-6 rounded-3xl shadow-xl border border-slate-100 space-y-4 w-full min-w-0">
+          <div class="flex justify-between items-center border-b border-slate-200 pb-4 w-full flex-wrap gap-2">
+            <h2 class="text-lg font-bold text-slate-900">2. Lembar Kalkulasi</h2>
+            <div class="flex gap-2 items-center relative">
+              <div class="relative inline-block text-left z-20">
+                <button onclick="toggleBatchMenu(event)"
+                  class="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 hover:from-indigo-600 hover:to-pink-600 text-white text-xs md:text-sm font-black px-4 py-3 rounded-xl transition shadow-lg shadow-purple-500/25 flex items-center gap-1.5">
+                  🌐 Validasi Masal <span class="text-[10px]">▼</span>
+                </button>
+                <div id="batchMenu"
+                  class="hidden absolute right-0 mt-2 w-56 rounded-2xl shadow-2xl bg-white border border-slate-100 divide-y divide-slate-100 overflow-hidden focus:outline-none z-30">
+                  <button onclick="runBatchResearch('Gemini')"
+                    class="w-full text-left px-4 py-3 text-xs text-purple-700 hover:bg-purple-50 font-bold transition flex items-center gap-2">🤖
+                    Gemini Search (Direkomendasikan)</button>
+                  <button onclick="runBatchResearch('SerpApi')"
+                    class="w-full text-left px-4 py-3 text-xs text-slate-700 hover:bg-amber-50 hover:text-amber-700 font-bold transition flex items-center gap-2">⚡
+                    SerpApi (Shopping)</button>
+                </div>
+              </div>
+              <button onclick="addNewRow()"
+                class="bg-slate-900 hover:bg-slate-800 text-white text-xs md:text-sm font-bold px-4 py-3 rounded-xl transition shadow-md">➕
+                Manual</button>
+            </div>
+          </div>
+
+          <div class="w-full rounded-xl md:border md:border-slate-200 md:bg-slate-50 block min-w-0 overflow-x-auto">
+            <table class="w-full text-left border-collapse min-w-[600px]">
+              <thead>
+                <tr class="text-[11px] uppercase text-slate-400 font-bold bg-slate-100 border-b">
+                  <th class="py-3 px-4">Fixture</th>
+                  <th class="py-3 px-4">Nama Material</th>
+                  <th class="py-3 px-4 text-center">Satuan</th>
+                  <th class="py-3 px-4 text-center">QTY</th>
+                  <th class="py-3 px-4">Harga Satuan</th>
+                  <th class="py-3 px-4 text-center">Sumber (Opsi)</th>
+                  <th class="py-3 px-4 text-right">Subtotal</th>
+                  <th class="py-3 px-4 text-center">X</th>
+                </tr>
+              </thead>
+              <tbody id="calculatorBody" class="bg-white"></tbody>
+            </table>
+          </div>
+
+          <div class="text-right pt-6 border-t border-slate-200 w-full">
+            <span class="text-sm text-slate-500 font-bold uppercase block mb-1">Total Estimasi</span>
+            <span id="grandTotalLabel" class="text-4xl md:text-5xl font-black text-slate-900 tracking-tighter"
+              data-value="0">Rp 0</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 w-full">
+            <button onclick="saveRAB()"
+              class="w-full bg-indigo-600 hover:bg-indigo-700 text-white p-4 rounded-2xl font-black text-base transition shadow-xl flex items-center justify-center gap-2">💾
+              Simpan Versi RAB</button>
+            <button onclick="sendEmailRAB()"
+              class="w-full bg-emerald-500 hover:bg-emerald-600 text-white p-4 rounded-2xl font-black text-base transition shadow-xl flex items-center justify-center gap-2">✉️
+              Kirim PDF ke Klien</button>
+          </div>
+        </div>
+
+        <!-- Row for AI Brainstormer & AI Cost-Optimizer side-by-side -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 w-full">
+          <!-- AI Design Brainstormer -->
+          <div
+            class="bg-indigo-50/80 backdrop-blur-xl p-4 md:p-6 rounded-3xl shadow-lg border border-indigo-100 space-y-4 w-full min-w-0 flex flex-col justify-between">
+            <div>
+              <h2 class="text-lg font-black text-indigo-900 flex items-center gap-2 mb-3">💬 AI Design Brainstormer</h2>
+              <div id="chatHistory"
+                class="bg-white p-4 rounded-2xl min-h-[140px] max-h-60 overflow-y-auto text-sm space-y-3 border border-indigo-200">
+                <div class="text-indigo-400 italic text-xs">Mulai percakapan...</div>
+              </div>
+            </div>
+            <div class="flex gap-2 mt-3">
+              <input type="text" id="chatInput" placeholder="Ketik idemu di sini..."
+                class="flex-1 p-3 bg-white border border-indigo-200 rounded-xl outline-none text-sm font-medium">
+              <button onclick="sendBrainstorm()"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-xl font-bold transition whitespace-nowrap">Tanya
+                AI 🚀</button>
+            </div>
+          </div>
+
+          <!-- AI Cost-Optimizer Card -->
+          <div
+            class="bg-gradient-to-br from-indigo-950 via-slate-900 to-slate-950 p-5 md:p-6 rounded-3xl shadow-2xl border border-white/5 w-full text-white space-y-4 flex flex-col justify-between">
+            <div class="space-y-3">
+              <h2
+                class="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400 flex items-center gap-2">
+                💡 AI Cost-Optimizer</h2>
+              <p class="text-xs text-slate-400">Pindai item RAB termahal dan temukan rekomendasi material hemat
+                alternatif lokal Indonesia secara otomatis.</p>
+              <button onclick="runCostOptimizer()"
+                class="w-full bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white p-4 rounded-2xl text-sm font-black shadow-lg shadow-orange-500/25 transition">Optimalkan
+                Anggaran ✨</button>
+            </div>
+            <div id="optimizerOutput" class="hidden space-y-3 pt-2">
+              <div id="optimizerExplanation"
+                class="text-xs text-slate-300 leading-relaxed bg-white/5 p-4 rounded-2xl border border-white/10 max-h-40 overflow-y-auto space-y-2">
+              </div>
+              <button onclick="applyOptimizedRAB()"
+                class="w-full bg-emerald-500 hover:bg-emerald-600 text-white p-4 rounded-2xl text-sm font-black transition shadow-lg shadow-emerald-500/25">Terapkan
+                Rekomendasi Hemat ✅</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="historySection"
+      class="bg-white/95 backdrop-blur-xl p-5 md:p-6 rounded-[2rem] shadow-xl border border-slate-100 space-y-6 hidden view-section w-full min-w-0">
+      <!-- Subpage Banner (Museum) -->
+      <div
+        class="w-full rounded-2xl overflow-hidden shadow-md border border-white/5 portfolio-sub-banner p-6 flex flex-col justify-end min-h-[120px] md:min-h-[160px] text-white">
+        <div class="max-w-lg space-y-1">
+          <span
+            class="bg-emerald-600/90 text-white font-bold text-[9px] uppercase tracking-widest px-2.5 py-0.5 rounded-full w-fit">PORTFOLIO
+            SHOWCASE: MUSEUM PROJECT</span>
+          <h3 class="text-xl md:text-2xl font-black tracking-tight leading-none drop-shadow-md">Arsip Proyek & Rencana
+            Anggaran Biaya</h3>
+        </div>
+      </div>
+      <div
+        class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-200 pb-4">
+        <h2 class="text-xl font-black text-slate-900">📂 Arsip Proyek</h2>
+        <input type="text" id="searchProject" oninput="filterHistory()" placeholder="🔍 Cari proyek..."
+          class="w-full sm:w-64 p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none text-base">
+      </div>
+      <div class="w-full rounded-xl md:border border-slate-200 block overflow-x-auto">
+        <table class="w-full text-left text-sm min-w-[700px]">
+          <thead class="bg-slate-100 text-slate-500 uppercase text-[10px] font-bold">
+            <tr>
+              <th class="p-4">Tgl</th>
+              <th class="p-4">ID Proyek</th>
+              <th class="p-4">Nama Proyek</th>
+              <th class="p-4">Klien Email</th>
+              <th class="p-4">Total Estimasi</th>
+              <th class="p-4">Catatan Versi</th>
+              <th class="p-4 text-center">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="historyTbody" class="bg-white"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Floating Cost Analysis Widget -->
+  <div id="floatingChartWidget"
+    class="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 pointer-events-none hidden">
+    <!-- Expanded Pop-up Card -->
+    <div id="floatingChartCard"
+      class="bg-white/95 backdrop-blur-xl p-5 rounded-[2rem] shadow-2xl border border-slate-200/80 w-80 flex flex-col transition-all duration-300 origin-bottom-right scale-0 opacity-0 pointer-events-auto">
+      <div class="flex justify-between items-center border-b border-slate-100 pb-3 mb-3">
+        <h3 id="chartTitleLabel" class="text-xs font-black text-slate-800 flex items-center gap-1.5">📊 Analisis Biaya
+        </h3>
+        <button onclick="toggleFloatingChart()"
+          class="text-slate-400 hover:text-slate-600 text-xs bg-slate-100 hover:bg-slate-200 p-1.5 rounded-full transition">✕</button>
+      </div>
+      <!-- Modern toggle segment selector -->
+      <div
+        class="flex p-1 bg-slate-50 border border-slate-200/60 rounded-xl mb-3 w-full text-[11px] font-bold gap-1 z-10">
+        <button onclick="changeChartMode('fixture')" id="btnChartFixture"
+          class="flex-1 text-center py-1.5 rounded-lg bg-slate-900 text-white shadow-sm transition-all duration-200">Fixture</button>
+        <button onclick="changeChartMode('material')" id="btnChartMaterial"
+          class="flex-1 text-center py-1.5 rounded-lg text-slate-500 hover:text-slate-800 transition-all duration-200">Material</button>
+      </div>
+      <div class="relative w-full aspect-square flex justify-center items-center max-w-[240px] mx-auto">
+        <canvas id="analyticsChart"></canvas>
+      </div>
+      <div class="text-center pt-3 mt-3 border-t border-slate-100 w-full">
+        <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Total Estimasi</span>
+        <span id="floatingGrandTotalLabel"
+          class="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-indigo-900 tracking-tighter"
+          data-value="0">Rp 0</span>
+      </div>
+    </div>
+
+    <!-- Floating Trigger Button -->
+    <button onclick="toggleFloatingChart()"
+      class="pointer-events-auto bg-slate-900/90 backdrop-blur-md hover:bg-slate-800 text-white px-5 py-3.5 rounded-2xl shadow-2xl shadow-slate-950/30 border border-white/10 transition duration-300 flex items-center gap-2 text-xs font-black tracking-wide transform hover:scale-105">
+      <span class="flex h-2.5 w-2.5 relative">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+      </span>
+      <span>RAB:</span>
+      <span id="floatingWidgetTotal" class="font-mono text-emerald-400 font-black">Rp 0</span>
+      <span>📊</span>
+    </button>
+  </div>
+
+  <div id="loadingOverlay"
+    class="fixed inset-0 bg-slate-900/80 backdrop-blur-lg z-50 hidden flex flex-col justify-center items-center text-white gap-5">
+    <div
+      class="animate-spin h-20 w-20 border-4 border-blue-500 border-t-transparent rounded-full shadow-[0_0_20px_rgba(59,130,246,0.6)]">
+    </div>
+    <p id="loadingMsg" class="font-bold text-base tracking-widest uppercase animate-pulse text-center px-4">Memproses...
+    </p>
+  </div>
+
+  <?!= include('JS'); ?>
+</body>
+
+</html>

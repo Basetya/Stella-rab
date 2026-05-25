@@ -1,0 +1,152 @@
+<style>
+  * { box-sizing: border-box !important; min-width: 0; }
+  html, body { width: 100vw !important; max-width: 100vw !important; overflow-x: hidden !important; margin: 0 !important; padding: 0 !important; }
+  .blueprint-bg {
+    background-color: #0b0f19; 
+    background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 24px 24px; background-attachment: fixed;
+  }
+  
+  /* Custom Image Backgrounds with dark overlays */
+  .login-cover-bg {
+    background: linear-gradient(to bottom, rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.95)), url('https://lh3.googleusercontent.com/d/1n2JbfDhKTIEjtcCVZ8MdNpUYDvdNhFyK') no-repeat center center;
+    background-size: cover;
+  }
+  
+  /* Premium Glassmorphism */
+  .glass-card {
+    background: rgba(255, 255, 255, 0.07);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .glass-card-dark {
+    background: rgba(15, 23, 42, 0.65);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  /* Portfolio Banners */
+  .portfolio-hero-banner {
+    background: linear-gradient(to right, rgba(15, 23, 42, 0.9) 30%, rgba(15, 23, 42, 0.2)), url('https://lh3.googleusercontent.com/d/1G3yoIiqVPFvMT0qxTmFQ7Q4eCeVwmdsw') no-repeat center center;
+    background-size: cover;
+  }
+
+  .portfolio-sub-banner {
+    background: linear-gradient(to right, rgba(15, 23, 42, 0.85), rgba(15, 23, 42, 0.4)), url('https://lh3.googleusercontent.com/d/1wZh7ZWAgEL6d8q6-80rDd3rWH4F9t0_K') no-repeat center center;
+    background-size: cover;
+  }
+
+  /* Dropdown Menu Styles */
+  #batchMenu {
+    transform-origin: top right;
+    animation: dropdownFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+  
+  @keyframes dropdownFadeIn {
+    from { opacity: 0; transform: scale(0.95) translateY(-5px); }
+    to { opacity: 1; transform: scale(1) translateY(0); }
+  }
+
+  /* Batch Validation Hub Styles */
+  .batch-glow-card {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .batch-glow-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 20px -8px rgba(99, 102, 241, 0.15);
+  }
+  
+  /* Row validation animations */
+  .row-validating-glow {
+    position: relative;
+    animation: rowPulseGlow 2s infinite ease-in-out;
+  }
+  
+  @keyframes rowPulseGlow {
+    0%, 100% {
+      background-color: rgba(99, 102, 241, 0.04);
+      box-shadow: inset 3px 0 0 0 #6366f1;
+    }
+    50% {
+      background-color: rgba(99, 102, 241, 0.12);
+      box-shadow: inset 6px 0 0 0 #4f46e5;
+    }
+  }
+
+  .row-success-flash {
+    animation: rowFlashGreen 1.5s ease-out forwards;
+  }
+
+  @keyframes rowFlashGreen {
+    0% {
+      background-color: rgba(16, 185, 129, 0.25);
+      box-shadow: inset 4px 0 0 0 #10b981;
+    }
+    100% {
+      background-color: rgba(16, 185, 129, 0.03);
+      box-shadow: inset 2px 0 0 0 #10b981;
+    }
+  }
+
+  .row-failed-flash {
+    animation: rowFlashRed 1.5s ease-out forwards;
+  }
+
+  @keyframes rowFlashRed {
+    0% {
+      background-color: rgba(244, 63, 94, 0.25);
+      box-shadow: inset 4px 0 0 0 #f43f5e;
+    }
+    100% {
+      background-color: rgba(244, 63, 94, 0.03);
+      box-shadow: inset 2px 0 0 0 #f43f5e;
+    }
+  }
+
+  /* Row Lock Styling */
+  .row-locked {
+    opacity: 0.7;
+    background-color: rgba(241, 245, 249, 0.4);
+  }
+  .row-locked input, .row-locked select, .row-locked button {
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    background-color: transparent !important;
+  }
+
+  /* Toast Notification system styles */
+  .custom-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 24px;
+    z-index: 100;
+    background: rgba(15, 23, 42, 0.95);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: white;
+    padding: 16px 24px;
+    border-radius: 20px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
+    font-size: 13px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: toastSlideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transition: all 0.3s ease;
+  }
+  
+  @keyframes toastSlideUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .custom-toast-success {
+    border-left: 4px solid #10b981;
+  }
+</style>
+</style>

@@ -1,0 +1,1301 @@
+<script>
+  let sessionUser = "", sessionRole = "", chartInstance = null, allHistory = [], currentUploadedImageBase64 = "", activeChartMode = "fixture", wasDragging = false; 
+
+  document.addEventListener("DOMContentLoaded", () => {
+    initializeChart();
+    makeWidgetDraggable();
+  });
+  
+  function showLoading(show, msg = "Memproses...") { 
+    const overlay = document.getElementById("loadingOverlay"); 
+    if(document.getElementById("loadingMsg")) document.getElementById("loadingMsg").innerText = msg; 
+    if(show) overlay.classList.remove("hidden"); else overlay.classList.add("hidden"); 
+  }
+  
+  function toggleView(id) { 
+    document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden')); 
+    document.getElementById(id).classList.remove('hidden'); 
+  }
+
+  function executeLogin() {
+    const u = document.getElementById("inputUser").value.trim(), p = document.getElementById("inputPass").value.trim();
+    if(!u || !p) return alert("Isi Username dan Password!");
+    showLoading(true, "Otentikasi System...");
+    google.script.run
+      .withFailureHandler(err => { showLoading(false); alert("Server Error: " + err.message); })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if(res.success) {
+          sessionUser = res.user.username; sessionRole = res.user.role;
+          document.getElementById("sessUser").innerText = sessionUser; document.getElementById("sessRole").innerText = sessionRole;
+          document.getElementById("loginScreen").classList.add("hidden"); 
+          document.getElementById("appScreen").classList.remove("hidden");
+          document.getElementById("floatingChartWidget").classList.remove("hidden");
+          if(document.getElementById("calculatorBody").children.length===0) addNewRow();
+        } else alert(res.error);
+      }).loginUser(u, p);
+  }
+
+  function triggerAI() {
+    const fileInput = document.getElementById('aiFileInput');
+    const files = fileInput.files;
+    if(files.length === 0) return alert("Pilih minimal satu file (Gambar desain atau daftar material)!");
+    
+    showLoading(true, `AI sedang memproses ${files.length} file dokumen...`);
+    
+    const promises = Array.from(files).map(file => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => {
+          resolve({
+            base64Data: e.target.result,
+            mimeType: file.type
+          });
+        };
+        reader.onerror = err => reject(err);
+        reader.readAsDataURL(file);
+      });
+    });
+    
+    Promise.all(promises).then(extractedFiles => {
+      // Simpan gambar pertama sebagai base64 untuk chat brainstorm jika formatnya gambar
+      const firstImage = extractedFiles.find(f => f.mimeType.startsWith("image/"));
+      if (firstImage) currentUploadedImageBase64 = firstImage.base64Data;
+      
+      google.script.run.withSuccessHandler(res => {
+        showLoading(false);
+        if(res.success) { 
+          const tbody = document.getElementById("calculatorBody"); tbody.innerHTML = ""; 
+          res.items.forEach(item => appendRowUI(item.fixtureName, item.materialName, item.qty, item.estimatedPrice, "#", item.unit || "ea"));
+          recalculateGrandTotal();
+          alert(`✅ Berhasil mengekstrak komponen dari ${files.length} file dokumen! Silakan lakukan validasi harga.`); 
+        } else alert("❌ Error AI: " + res.error);
+      }).processAIExtractionMultiple(extractedFiles, sessionUser, sessionRole);
+    }).catch(err => {
+      showLoading(false);
+      alert("Gagal membaca beberapa file: " + err.toString());
+    });
+  }
+
+  function addNewRow() { appendRowUI("", "", 1.00, 0, "#", "ea"); }
+  
+  function appendRowUI(fixName, matName, qty, price, refUrl = "#", unit = "ea") {
+    const tbody = document.getElementById("calculatorBody");
+    const rowId = "row_" + Date.now() + "_" + Math.floor(Math.random()*1000);
+    const hasLink = refUrl !== "#" && refUrl !== "";
+    
+    const tr = document.createElement("tr"); tr.id = rowId; 
+    tr.className = "text-sm border-b border-slate-100 hover:bg-slate-50 transition flex flex-col md:table-row mb-4 md:bg-transparent rounded-2xl md:rounded-none overflow-hidden bg-white shadow-sm md:shadow-none";
+    tr.innerHTML = `
+      <td class="p-3 md:p-4 flex flex-col md:table-cell border-b md:border-0 border-slate-100">
+         <span class="md:hidden font-bold text-[11px] uppercase text-slate-400 mb-1">Fixture</span>
+         <input type="text" value="${fixName}" class="fixture-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-medium" placeholder="Bagian Ruangan">
+      </td>
+      <td class="p-3 md:p-4 flex flex-col md:table-cell border-b md:border-0 border-slate-100">
+         <span class="md:hidden font-bold text-[11px] uppercase text-slate-400 mb-1">Material</span>
+         <input type="text" value="${matName}" class="material-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-bold text-blue-700" placeholder="Nama Material">
+      </td>
+      <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
+         <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">Satuan</span>
+         <input type="text" value="${unit}" class="unit-input w-16 p-2 text-center border border-slate-200 rounded-xl font-bold bg-slate-50 text-slate-900 text-xs" placeholder="ea">
+      </td>
+      <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
+         <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">QTY</span>
+         <input type="number" step="0.01" value="${qty}" oninput="calcRow('${rowId}')" class="qty-input w-24 p-2 text-center border border-slate-200 rounded-xl font-bold bg-slate-50">
+      </td>
+      <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
+         <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">Harga Satuan</span>
+         <div class="flex items-center font-mono">Rp <input type="number" value="${price}" oninput="calcRow('${rowId}')" class="custom-price-input w-28 p-2 border border-slate-200 rounded-xl font-bold bg-slate-50 text-slate-900 ml-1"></div>
+      </td>
+      <td class="p-3 md:p-4 flex flex-col justify-center items-center border-b md:border-0 border-slate-100 gap-1">
+         <div class="grid grid-cols-2 gap-1 w-full max-w-[180px] md:max-w-none">
+            <button onclick="runGeminiResearch('${rowId}')" title="Gemini AI Google Search Grounding (Direkomendasikan - Sangat Akurat)" class="col-span-2 text-[9px] bg-purple-600 hover:bg-purple-700 text-white p-1.5 rounded-lg font-bold transition flex items-center justify-center gap-0.5 shadow-sm shadow-purple-500/20">🤖 AI (Grounding)</button>
+            <button onclick="runSerpApiResearch('${rowId}')" title="Google Shopping via SerpApi (Kuota Premium)" class="text-[9px] bg-amber-50 hover:bg-amber-100 text-amber-700 p-1.5 rounded-lg font-bold transition flex items-center justify-center gap-0.5 border border-amber-200/50">⚡ Serp</button>
+            <button onclick="openManualWebSearch('${rowId}')" title="Cari Manual Gratis via Tab Baru" class="text-[9px] bg-slate-50 hover:bg-slate-100 text-slate-700 p-1.5 rounded-lg font-bold transition flex items-center justify-center gap-0.5 border border-slate-200/50">🔍 Web</button>
+         </div>
+         <div class="ref-link-area text-center w-full mt-1">${hasLink ? `<a href="${refUrl}" target="_blank" class="text-[10px] text-emerald-600 underline font-bold">Lihat Link</a>` : ''}</div>
+      </td>
+      <td class="p-4 md:p-4 flex justify-between items-center md:table-cell bg-slate-50 md:bg-transparent border-b md:border-0 border-slate-100">
+         <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">Subtotal</span>
+         <span class="subtotal-label text-right font-black font-mono text-lg md:text-base text-slate-900">Rp 0</span>
+      </td>
+      <td class="p-3 md:p-4 flex justify-center items-center bg-rose-50/50 md:bg-transparent">
+         <button onclick="document.getElementById('${rowId}').remove(); recalculateGrandTotal();" class="text-rose-500 font-bold p-2 w-full md:w-auto rounded-lg">✕</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+    calcRow(rowId);
+  }
+
+  // Fungsi Hemat Kuota (Buka Web Browser Gratis)
+  function openManualWebSearch(rowId) {
+    const row = document.getElementById(rowId); 
+    const matName = row.querySelector(".material-name").value.trim();
+    if(!matName) return alert("Silakan isi nama material terlebih dahulu!");
+    const query = encodeURIComponent("Harga " + matName);
+    window.open(`https://www.google.co.id/search?tbm=shop&q=${query}`, "_blank");
+  }
+
+  // Batch menu controls
+  function toggleBatchMenu(event) {
+    event.stopPropagation();
+    const menu = document.getElementById("batchMenu");
+    menu.classList.toggle("hidden");
+  }
+  
+  document.addEventListener("click", () => {
+    const menu = document.getElementById("batchMenu");
+    if (menu) menu.classList.add("hidden");
+  });
+
+  // Individual pricing engine runs
+  // Individual pricing engine runs
+  function playChimeSoftly() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const now = ctx.currentTime;
+      
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(1046.50, now); 
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.08, now + 0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + 0.4);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function runSerpApiResearch(rowId) {
+    const row = document.getElementById(rowId); 
+    if (!row) return;
+    const name = (row.querySelector(".material-name").value || "").trim();
+    if(!name) return showToast("Nama material kosong!", "error");
+    
+    row.classList.remove("row-success-flash", "row-failed-flash");
+    row.classList.add("row-validating-glow");
+    lockRowInputs(rowId, true);
+    
+    showToast(`Meriset via SerpApi: "${name}"...`, "info");
+    
+    google.script.run
+      .withFailureHandler(err => {
+        row.classList.remove("row-validating-glow");
+        lockRowInputs(rowId, false);
+        row.classList.add("row-failed-flash");
+        showToast(`Koneksi Gagal: ${err.message}`, "error");
+      })
+      .withSuccessHandler(res => {
+        row.classList.remove("row-validating-glow");
+        lockRowInputs(rowId, false);
+        
+        handleResearchResult(rowId, res, "SerpApi");
+        
+        if (res.success && res.data.actualPrice > 0) {
+          row.classList.add("row-success-flash");
+          showToast(`"${name}" divalidasi: Rp ${res.data.actualPrice.toLocaleString('id-ID')}`, "success");
+          playChimeSoftly();
+        }
+      }).deepResearchMaterial(name);
+  }
+
+  function runGeminiResearch(rowId) {
+  const row = document.getElementById(rowId); 
+  if (!row) return;
+  const name = (row.querySelector(".material-name").value || "").trim();
+  if(!name) return showToast("Nama material kosong!", "error");
+  
+  row.classList.remove("row-success-flash", "row-failed-flash");
+  row.classList.add("row-validating-glow");
+  lockRowInputs(rowId, true);
+  
+  showToast(`Mengecek harga "${name}"...`, "info");
+  
+  google.script.run
+    .withFailureHandler(err => {
+      row.classList.remove("row-validating-glow");
+      lockRowInputs(rowId, false);
+      row.classList.add("row-failed-flash");
+      showToast(`Koneksi Gagal: ${err.message}`, "error");
+    })
+    .withSuccessHandler(res => {
+      row.classList.remove("row-validating-glow");
+      lockRowInputs(rowId, false);
+      
+      // Menentukan label sumber untuk ditampilkan di UI
+      const sourceLabel = res.source === "MASTER" ? "Master Database" : "Gemini AI";
+      handleResearchResult(rowId, res, sourceLabel);
+      
+      if (res.success && res.data.actualPrice > 0) {
+        row.classList.add("row-success-flash");
+        
+        // Indikator Toast UI: Membedakan notifikasi Master vs AI
+        if(res.source === "MASTER") {
+           showToast(`✅ [MASTER] "${name}": Rp ${res.data.actualPrice.toLocaleString('id-ID')}`, "success");
+        } else {
+           showToast(`🤖 [AI] "${name}" grounded: Rp ${res.data.actualPrice.toLocaleString('id-ID')}`, "success");
+        }
+        playChimeSoftly();
+      }
+    }).getBestPrice(name); // <-- TRIGGER UTAMA BERUBAH: Sekarang memanggil fungsi hierarki kita
+}
+
+ function handleResearchResult(rowId, res, sourceName) {
+  const row = document.getElementById(rowId);
+  if (!row) return;
+  
+  if (res.success && res.data.actualPrice > 0) {
+    const currentPrice = row.querySelector(".custom-price-input").value;
+    const currentRefArea = row.querySelector(".ref-link-area").innerHTML;
+    row.setAttribute("data-prev-price", currentPrice);
+    row.setAttribute("data-prev-ref", currentRefArea);
+
+    const priceInput = row.querySelector(".custom-price-input");
+    priceInput.value = res.data.actualPrice;
+    
+    // Tweak Visual Berdasarkan Sumber Data
+    if (sourceName === "Master Database") {
+      priceInput.className = "custom-price-input w-28 p-2 border-2 border-emerald-500 rounded-xl font-black bg-emerald-50 text-emerald-900 ml-1 transition-all";
+    } else {
+      priceInput.className = "custom-price-input w-28 p-2 border-2 border-purple-400 rounded-xl font-bold bg-purple-50/50 text-purple-950 ml-1 transition-all";
+    }
+
+    const displayUrl = res.data.sourceUrl && res.data.sourceUrl !== "#" ? res.data.sourceUrl : "";
+    const matName = (row.querySelector(".material-name").value || "").trim();
+    const matUnit = (row.querySelector(".material-unit") ? row.querySelector(".material-unit").value : "ea");
+    
+    let refHtml = "";
+    if (sourceName === "Master Database") {
+      refHtml = `<span class="text-[9px] bg-emerald-600 text-white px-2 py-0.5 rounded-md font-black shadow-sm" title="Data diambil dari Master Harga lokal">📋 MASTER</span>`;
+    } else {
+      // JIKA DARI AI: Berikan tombol tambahan untuk Simpan ke Master (Tahap 3)
+      const saveBtnHtml = `<button onclick="pushRowToMaster('${rowId}', '${btoa(encodeURIComponent(matName))}', ${res.data.actualPrice}, '${matUnit}', '${displayUrl}')" class="text-[9px] bg-indigo-600 hover:bg-indigo-700 text-white px-1.5 py-0.5 rounded font-bold shadow-xs transition-all mt-1 flex items-center gap-0.5">➕ Jadikan Master</button>`;
+      
+      if (displayUrl) {
+        refHtml = `<div class="flex flex-col items-center"><a href="${displayUrl}" target="_blank" class="text-[10px] bg-purple-100 text-purple-700 hover:bg-purple-200 border border-purple-200 px-1.5 py-0.5 rounded-md font-black transition decoration-none" title="Sumber: Live Web Search via ${sourceName}">🌐 Link AI</a> ${saveBtnHtml}</div>`;
+      } else {
+        refHtml = `<div class="flex flex-col items-center"><span class="text-[10px] bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded-md font-bold" title="Sumber: Estimasi AI">🤖 ${sourceName}</span> ${saveBtnHtml}</div>`;
+      }
+    }
+    
+    row.setAttribute("data-researched-price", res.data.actualPrice);
+    
+    const researchedRefHtml = `<div class="flex flex-col items-center gap-1 mt-1">${refHtml} <button onclick="undoPrice('${rowId}')" title="Kembalikan ke harga sebelum riset" class="text-[9px] text-slate-400 hover:text-slate-700 underline font-medium transition">↩️ Undo</button></div>`;
+    row.setAttribute("data-researched-ref", researchedRefHtml);
+
+    row.querySelector(".ref-link-area").innerHTML = researchedRefHtml;
+    calcRow(rowId);
+  } else {
+    row.querySelector(".ref-link-area").innerHTML = `<span class="text-[10px] bg-rose-50 text-rose-600 border border-rose-200 px-2 py-0.5 rounded-md font-black">✕ API Gagal</span>`;
+    row.classList.add("row-failed-flash");
+    showToast(`Pencarian gagal (${sourceName}): ${res.error || 'Harga tidak ditemukan.'}`, "error");
+  }
+}
+
+/**
+ * FUNGSI TRIGGER UI: Mengirim data baris lokal ke server Google Sheet
+ */
+function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
+  const decodedName = decodeURIComponent(atob(encodedName));
+  showToast(`Menyimpan "${decodedName}" ke database master...`, "info");
+  
+  const payload = {
+    itemName: decodedName,
+    unitPrice: price,
+    unit: unit,
+    refUrl: refUrl,
+    conversionFactor: 1, // Default diisi angka 1 sesuai aturan emas
+    currentUser: (typeof currentUser !== 'undefined' ? currentUser : "Stella Owner")
+  };
+  
+  google.script.run
+    .withFailureHandler(err => {
+      showToast(`Gagal menyimpan: ${err.message}`, "error");
+    })
+    .withSuccessHandler(res => {
+      if(res.success) {
+        showToast(`✅ Berhasil! "${decodedName}" resmi jadi acuan harga Master (${res.materialId}).`, "success");
+        // Update visual area baris tersebut langsung menjadi hijau (karena statusnya sudah resmi jadi master)
+        const row = document.getElementById(rowId);
+        if(row) {
+          const priceInput = row.querySelector(".custom-price-input");
+          priceInput.className = "custom-price-input w-28 p-2 border-2 border-emerald-500 rounded-xl font-black bg-emerald-50 text-emerald-900 ml-1 transition-all";
+          row.querySelector(".ref-link-area").innerHTML = `<div class="flex flex-col items-center gap-1 mt-1"><span class="text-[9px] bg-emerald-600 text-white px-2 py-0.5 rounded-md font-black shadow-sm">📋 MASTER</span></div>`;
+        }
+      } else {
+        showToast(`Gagal: ${res.error}`, "error");
+      }
+    }).saveNewItemToMaster(payload);
+}
+    row.setAttribute("data-researched-price", res.data.actualPrice);
+    
+    // Pasang tombol kontingensi Undo untuk fleksibilitas user
+    const researchedRefHtml = `<div class="flex flex-col items-center gap-1 mt-1">${refHtml} <button onclick="undoPrice('${rowId}')" title="Kembalikan ke harga sebelum riset" class="text-[9px] text-slate-400 hover:text-slate-700 underline font-medium transition">↩️ Undo Perubahan</button></div>`;
+    row.setAttribute("data-researched-ref", researchedRefHtml);
+
+    row.querySelector(".ref-link-area").innerHTML = researchedRefHtml;
+    calcRow(rowId);
+  } else {
+    row.querySelector(".ref-link-area").innerHTML = `<span class="text-[10px] bg-rose-50 text-rose-600 border border-rose-200 px-2 py-0.5 rounded-md font-black">✕ API Gagal</span>`;
+    row.classList.add("row-failed-flash");
+    showToast(`Pencarian gagal (${sourceName}): ${res.error || 'Harga tidak ditemukan.'}`, "error");
+  }
+}
+
+  function undoPrice(rowId) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const prevPrice = row.getAttribute("data-prev-price");
+    const prevRef = row.getAttribute("data-prev-ref");
+    if (prevPrice !== null) {
+      row.querySelector(".custom-price-input").value = prevPrice;
+      
+      // Ambil referensi HTML sebelumnya, hilangkan tombol undo/redo lama
+      let prevRefHtml = prevRef || "";
+      prevRefHtml = prevRefHtml.replace(/<button.*?>.*?Undo<\/button>/g, "").replace(/<button.*?>.*?Redo<\/button>/g, "");
+      
+      // Tambahkan tombol Redo ke dalam HTML referensi lama tersebut
+      const undoRefHtml = prevRefHtml + ` <button onclick="redoPrice('${rowId}')" title="Kembalikan ke harga hasil riset" class="text-[10px] text-blue-600 hover:text-blue-800 underline font-bold ml-1.5">↪️ Redo</button>`;
+      
+      row.querySelector(".ref-link-area").innerHTML = undoRefHtml;
+      calcRow(rowId);
+    } else {
+      alert("Tidak ada riwayat harga sebelumnya untuk baris ini.");
+    }
+  }
+
+  function redoPrice(rowId) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const researchedPrice = row.getAttribute("data-researched-price");
+    const researchedRef = row.getAttribute("data-researched-ref");
+    if (researchedPrice !== null && researchedRef !== null) {
+      row.querySelector(".custom-price-input").value = researchedPrice;
+      row.querySelector(".ref-link-area").innerHTML = researchedRef;
+      calcRow(rowId);
+    } else {
+      alert("Tidak ada riwayat Redo untuk baris ini.");
+    }
+  }
+
+  // Generalized Mass/Batch validator
+  let batchValidationMode = "Gemini";
+  let activeBatches = [];
+  let isBackgroundValidating = false;
+  let cancelValidationSignal = false;
+
+  function openBatchHub(mode = "Gemini") {
+    batchValidationMode = mode;
+    const section = document.getElementById("batchHubSection");
+    if (section) {
+      section.classList.remove("hidden");
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    generateBatchesUI();
+  }
+
+  function closeBatchHub() {
+    const section = document.getElementById("batchHubSection");
+    if (section) section.classList.add("hidden");
+  }
+
+  function generateBatchesUI() {
+    const container = document.getElementById("batchesContainer");
+    if (!container) return;
+    
+    const rows = Array.from(document.getElementById("calculatorBody").children);
+    if (rows.length === 0) {
+      container.innerHTML = `<div class="col-span-full p-4 text-center text-slate-400 font-bold bg-slate-50 border border-dashed border-slate-200 rounded-2xl">Tabel kalkulasi kosong. Tambahkan baris manual atau bedah desain terlebih dahulu!</div>`;
+      return;
+    }
+    
+    const batchSize = parseInt(document.getElementById("batchSizeSelect").value) || 5;
+    activeBatches = [];
+    
+    let currentBatch = [];
+    for (let i = 0; i < rows.length; i++) {
+      const rowId = rows[i].id;
+      const matName = (rows[i].querySelector(".material-name").value || "").trim();
+      
+      currentBatch.push({
+        rowId: rowId,
+        materialName: matName,
+        index: i + 1
+      });
+      
+      if (currentBatch.length === batchSize || i === rows.length - 1) {
+        activeBatches.push(currentBatch);
+        currentBatch = [];
+      }
+    }
+    
+    container.innerHTML = activeBatches.map((batch, idx) => {
+      const batchNum = idx + 1;
+      const itemsListHtml = batch.map(item => {
+        const displayName = item.materialName || `<span class="text-slate-400 italic text-[11px] font-medium">(Baris Kosong)</span>`;
+        return `<div class="truncate text-[11px] font-bold text-slate-600">• ${displayName}</div>`;
+      }).join("");
+      
+      return `
+        <div id="batchCard_${batchNum}" class="batch-glow-card bg-slate-50 border border-slate-200/80 p-4 rounded-2xl flex flex-col justify-between gap-3 shadow-sm hover:shadow-md transition">
+          <div class="flex justify-between items-start border-b border-slate-200/40 pb-2">
+            <div>
+              <span class="text-xs font-black text-slate-800">Batch ${batchNum}</span>
+              <span class="text-[10px] text-slate-400 block font-bold uppercase tracking-wider mt-0.5">${batch.length} Item (Baris ${batch[0].index} - ${batch[batch.length-1].index})</span>
+            </div>
+            <span id="batchStatus_${batchNum}" class="batch-status-badge text-[9px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200">PENDING</span>
+          </div>
+          
+          <div class="space-y-1 my-1">
+            ${itemsListHtml}
+          </div>
+          
+          <button id="batchBtn_${batchNum}" onclick="validateBatchSingle(${batchNum})" class="w-full bg-white hover:bg-slate-100 text-slate-885 border border-slate-200 py-2 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 shadow-sm">
+            🤖 Validasi Batch ${batchNum}
+          </button>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function lockRowInputs(rowId, locked) {
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    
+    if (locked) {
+      row.classList.add("row-locked");
+    } else {
+      row.classList.remove("row-locked");
+    }
+  }
+
+  function showToast(message, type = "success") {
+    const existing = document.querySelectorAll(".custom-toast");
+    existing.forEach(t => t.remove());
+
+    const toast = document.createElement("div");
+    toast.className = `custom-toast custom-toast-${type}`;
+    
+    let icon = "🔔";
+    if (type === "success") icon = "🎉";
+    else if (type === "error") icon = "❌";
+    else if (type === "info") icon = "ℹ️";
+    
+    toast.innerHTML = `
+      <span class="text-lg">${icon}</span>
+      <span>${message}</span>
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+      toast.style.opacity = "0";
+      toast.style.transform = "translateY(-10px)";
+      setTimeout(() => toast.remove(), 300);
+    }, 4500);
+  }
+
+  function playCompletionChime() {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      const ctx = new AudioContext();
+      const now = ctx.currentTime;
+      
+      const osc1 = ctx.createOscillator();
+      const gain1 = ctx.createGain();
+      osc1.type = 'sine';
+      osc1.frequency.setValueAtTime(830.61, now); 
+      gain1.gain.setValueAtTime(0, now);
+      gain1.gain.linearRampToValueAtTime(0.12, now + 0.05);
+      gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+      osc1.connect(gain1);
+      gain1.connect(ctx.destination);
+      osc1.start(now);
+      osc1.stop(now + 0.5);
+      
+      const osc2 = ctx.createOscillator();
+      const gain2 = ctx.createGain();
+      osc2.type = 'sine';
+      osc2.frequency.setValueAtTime(1046.50, now + 0.15); 
+      gain2.gain.setValueAtTime(0, now + 0.15);
+      gain2.gain.linearRampToValueAtTime(0.12, now + 0.2);
+      gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.8);
+      osc2.connect(gain2);
+      gain2.connect(ctx.destination);
+      osc2.start(now + 0.15);
+      osc2.stop(now + 0.8);
+    } catch (e) {
+      console.error("Audio Context failed: ", e);
+    }
+  }
+
+  function stopBackgroundValidation() {
+    if (isBackgroundValidating) {
+      cancelValidationSignal = true;
+      isBackgroundValidating = false;
+      
+      const pill = document.getElementById("floatingProgressPill");
+      if (pill) {
+        pill.classList.remove("scale-100", "opacity-100", "pointer-events-auto");
+        pill.classList.add("scale-0", "opacity-0", "pointer-events-none");
+      }
+      
+      showToast("Validasi massal latar belakang dihentikan!", "error");
+    }
+  }
+
+  async function validateBatchSingle(batchNum, isSequencing = false) {
+    const idx = batchNum - 1;
+    const batch = activeBatches[idx];
+    if (!batch || batch.length === 0) return;
+    
+    const card = document.getElementById(`batchCard_${batchNum}`);
+    const badge = document.getElementById(`batchStatus_${batchNum}`);
+    const btn = document.getElementById(`batchBtn_${batchNum}`);
+    
+    badge.innerText = "RUNNING";
+    badge.className = "batch-status-badge text-[9px] font-black px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-600 border border-indigo-200 animate-pulse";
+    
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="animate-spin h-3.5 w-3.5 border-2 border-indigo-600 border-t-transparent rounded-full mr-1.5 inline-block"></span> Memproses...`;
+    }
+    
+    const delay = parseInt(document.getElementById("batchDelaySelect").value) || 5000;
+    let successCount = 0;
+    
+    for (let i = 0; i < batch.length; i++) {
+      if (cancelValidationSignal) break;
+      
+      const item = batch[i];
+      const row = document.getElementById(item.rowId);
+      
+      if (!item.materialName) {
+        successCount++;
+        continue;
+      }
+      
+      if (row) {
+        row.classList.remove("row-success-flash", "row-failed-flash");
+        row.classList.add("row-validating-glow");
+        lockRowInputs(item.rowId, true);
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+      
+      const progressText = document.getElementById("progressPillText");
+      if (progressText) {
+        progressText.innerHTML = `Batch ${batchNum} (${i + 1}/${batch.length}): "${item.materialName.substring(0, 15)}..."`;
+      }
+      
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      
+      if (cancelValidationSignal) {
+        if (row) {
+          row.classList.remove("row-validating-glow");
+          lockRowInputs(item.rowId, false);
+        }
+        break;
+      }
+      
+      let itemSuccess = false;
+      let attempt = 0;
+      const maxRetries = 2;
+      
+      while (!itemSuccess && attempt <= maxRetries && !cancelValidationSignal) {
+        if (attempt > 0) {
+          await new Promise(resolve => setTimeout(resolve, 15000));
+        }
+        
+        if (cancelValidationSignal) break;
+        
+        await new Promise((resolve) => {
+          const successHandler = res => {
+            if (row) {
+              row.classList.remove("row-validating-glow");
+              lockRowInputs(item.rowId, false);
+            }
+            
+            if (res.success && res.data.actualPrice > 0) {
+              handleResearchResult(item.rowId, res, batchValidationMode === "SerpApi" ? "SerpApi" : "Gemini AI");
+              
+              if (row) {
+                row.classList.add("row-success-flash");
+                const refLinkArea = row.querySelector(".ref-link-area");
+                if (refLinkArea && !refLinkArea.innerHTML.includes("✅")) {
+                  refLinkArea.innerHTML = `<span class="text-[9px] bg-emerald-50 text-emerald-700 px-1.5 py-0.5 rounded font-black border border-emerald-200 mr-1.5">✅ Grounded</span>` + refLinkArea.innerHTML;
+                }
+              }
+              itemSuccess = true;
+              successCount++;
+              resolve();
+            } else {
+              attempt++;
+              if (attempt > maxRetries) {
+                if (row) row.classList.add("row-failed-flash");
+                resolve();
+              } else {
+                resolve();
+              }
+            }
+          };
+          
+          if (batchValidationMode === "SerpApi") {
+            google.script.run.withSuccessHandler(successHandler).deepResearchMaterial(item.materialName);
+          } else {
+            google.script.run.withSuccessHandler(successHandler).researchMaterialGeminiSearch(item.materialName);
+          }
+        });
+      }
+    }
+    
+    batch.forEach(item => {
+      lockRowInputs(item.rowId, false);
+      const row = document.getElementById(item.rowId);
+      if (row) row.classList.remove("row-validating-glow");
+    });
+    
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = `🤖 Validasi Batch ${batchNum}`;
+    }
+    
+    if (cancelValidationSignal) {
+      badge.innerText = "PENDING";
+      badge.className = "batch-status-badge text-[9px] font-black px-2.5 py-1 rounded-full bg-slate-100 text-slate-500 border border-slate-200";
+      return;
+    }
+    
+    if (successCount === batch.length) {
+      badge.innerText = "SUCCESS";
+      badge.className = "batch-status-badge text-[9px] font-black px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-600 border border-emerald-200";
+      if (card) card.className = "batch-glow-card bg-white border border-emerald-200/80 p-4 rounded-2xl flex flex-col justify-between gap-3 shadow-sm hover:shadow-md transition";
+      if (!isSequencing) {
+        showToast(`Batch ${batchNum} selesai divalidasi!`, "success");
+        playCompletionChime();
+      }
+    } else {
+      badge.innerText = "PARTIAL";
+      badge.className = "batch-status-badge text-[9px] font-black px-2.5 py-1 rounded-full bg-amber-50 text-amber-600 border border-amber-200";
+      if (card) card.className = "batch-glow-card bg-white border border-amber-200/80 p-4 rounded-2xl flex flex-col justify-between gap-3 shadow-sm hover:shadow-md transition";
+      if (!isSequencing) {
+        showToast(`Batch ${batchNum} selesai dengan sebagian item gagal.`, "info");
+        playCompletionChime();
+      }
+    }
+  }
+
+  async function validateAllBatchesSequentially() {
+    if (activeBatches.length === 0) return alert("Tidak ada batch yang aktif!");
+    if (isBackgroundValidating) return alert("Validasi latar belakang sedang berjalan!");
+    
+    isBackgroundValidating = true;
+    cancelValidationSignal = false;
+    
+    const pill = document.getElementById("floatingProgressPill");
+    if (pill) {
+      pill.classList.remove("scale-0", "opacity-0", "pointer-events-none");
+      pill.classList.add("scale-100", "opacity-100", "pointer-events-auto");
+    }
+    
+    showToast("Validasi massal berjalan di latar belakang. Anda tetap bisa menggunakan halaman!", "info");
+    
+    const delayBetweenBatches = 8000;
+    
+    for (let i = 0; i < activeBatches.length; i++) {
+      if (cancelValidationSignal) break;
+      
+      const batchNum = i + 1;
+      
+      if (i > 0) {
+        const progressText = document.getElementById("progressPillText");
+        if (progressText) {
+          progressText.innerHTML = `Jeda Antar-Batch (${delayBetweenBatches / 1000}s)...`;
+        }
+        await new Promise(resolve => setTimeout(resolve, delayBetweenBatches));
+      }
+      
+      if (cancelValidationSignal) break;
+      
+      await validateBatchSingle(batchNum, true);
+    }
+    
+    isBackgroundValidating = false;
+    
+    if (pill) {
+      pill.classList.remove("scale-100", "opacity-100", "pointer-events-auto");
+      pill.classList.add("scale-0", "opacity-0", "pointer-events-none");
+    }
+    
+    if (!cancelValidationSignal) {
+      showToast("🎉 Seluruh batch validasi latar belakang telah selesai!", "success");
+      playCompletionChime();
+    }
+  }
+
+  function runBatchResearch(mode) {
+    if (mode === "CSE") {
+      alert("⚠️ Layanan Google Custom Search API ditutup per awal 2026.\n\nPencarian massal Anda akan dialihkan secara otomatis ke '🤖 Gemini Search (Direkomendasikan)'.");
+      mode = "Gemini";
+    }
+    openBatchHub(mode);
+  }
+
+  function calcRow(id) { 
+    const row=document.getElementById(id), p=parseFloat(row.querySelector(".custom-price-input").value)||0, q=parseFloat(row.querySelector(".qty-input").value)||0, sub=p*q; 
+    row.querySelector(".subtotal-label").innerText="Rp "+sub.toLocaleString('id-ID'); row.setAttribute("data-subtotal",sub); recalculateGrandTotal(); 
+  }
+  function recalculateGrandTotal() { 
+    const rows = document.getElementById("calculatorBody").children; let grand = 0; let fb = {}; 
+    for(let i=0; i<rows.length; i++) { 
+      const sub = parseFloat(rows[i].getAttribute("data-subtotal"))||0; grand += sub; 
+      let name = "";
+      if (activeChartMode === "material") {
+        name = (rows[i].querySelector(".material-name").value || `Bahan ${i+1}`).trim();
+      } else {
+        name = (rows[i].querySelector(".fixture-name").value || `Bagian ${i+1}`).trim();
+      }
+      if(sub>0 && name) fb[name] = (fb[name]||0)+sub; 
+    } 
+    const formattedGrand = "Rp " + grand.toLocaleString('id-ID');
+    document.getElementById("grandTotalLabel").innerText = formattedGrand; 
+    document.getElementById("grandTotalLabel").dataset.value = grand; 
+    
+    const floatingLabel = document.getElementById("floatingGrandTotalLabel");
+    if (floatingLabel) {
+      floatingLabel.innerText = formattedGrand;
+      floatingLabel.dataset.value = grand;
+    }
+    
+    const widgetTotal = document.getElementById("floatingWidgetTotal");
+    if (widgetTotal) {
+      widgetTotal.innerText = formattedGrand;
+    }
+    
+    updateChart(fb); 
+  }
+
+  function sendBrainstorm() {
+    const input = document.getElementById("chatInput"); const text = input.value.trim(); if(!text) return;
+    const rows = document.getElementById("calculatorBody").children; let currentRab = [];
+    for(let r of rows) currentRab.push({ 
+      fixtureName: r.querySelector('.fixture-name').value, 
+      materialName: r.querySelector('.material-name').value, 
+      unit: r.querySelector('.unit-input').value || "ea",
+      qty: parseFloat(r.querySelector('.qty-input').value)||0, 
+      unitPrice: parseFloat(r.querySelector('.custom-price-input').value)||0 
+    });
+    const chatHistory = document.getElementById("chatHistory"); chatHistory.innerHTML += `<div class="text-right mb-2"><span class="bg-indigo-600 text-white p-2 rounded-xl inline-block">${text}</span></div>`; input.value = "";
+    showLoading(true, "AI Mensimulasikan Ide Desain Baru...");
+    google.script.run.withSuccessHandler(res => {
+      showLoading(false);
+      if(res.success) {
+        chatHistory.innerHTML += `<div class="text-left mb-2"><span class="bg-indigo-50 text-indigo-900 p-2 rounded-xl inline-block">🤖 ${res.data.reply}</span></div>`; chatHistory.scrollTop = chatHistory.scrollHeight;
+        document.getElementById("calculatorBody").innerHTML = ""; res.data.newRab.forEach(i => appendRowUI(i.fixtureName, i.materialName, i.qty, i.unitPrice, "#", i.unit || "ea")); recalculateGrandTotal();
+      } else {
+        alert("Gagal brainstorm: " + res.error);
+      }
+    }).brainstormDesign(text, currentRab, currentUploadedImageBase64);
+  }
+
+  function changeChartMode(mode) {
+    activeChartMode = mode;
+    
+    const btnFixture = document.getElementById("btnChartFixture");
+    const btnMaterial = document.getElementById("btnChartMaterial");
+    const titleLabel = document.getElementById("chartTitleLabel");
+    
+    if (mode === "fixture") {
+      btnFixture.className = "flex-1 text-center py-1.5 rounded-lg bg-slate-900 text-white shadow-sm transition-all duration-200";
+      btnMaterial.className = "flex-1 text-center py-1.5 rounded-lg text-slate-500 hover:text-slate-800 transition-all duration-200";
+      if (titleLabel) titleLabel.innerHTML = `📊 Analisis Biaya`;
+    } else {
+      btnFixture.className = "flex-1 text-center py-1.5 rounded-lg text-slate-500 hover:text-slate-800 transition-all duration-200";
+      btnMaterial.className = "flex-1 text-center py-1.5 rounded-lg bg-slate-900 text-white shadow-sm transition-all duration-200";
+      if (titleLabel) titleLabel.innerHTML = `📊 Analisis Biaya`;
+    }
+    
+    recalculateGrandTotal();
+  }
+
+  function toggleFloatingChart() {
+    if (wasDragging) return;
+    const card = document.getElementById("floatingChartCard");
+    if (!card) return;
+    const isClosed = card.classList.contains("scale-0");
+    if (isClosed) {
+      card.classList.remove("scale-0", "opacity-0", "pointer-events-none");
+      card.classList.add("scale-100", "opacity-100");
+    } else {
+      card.classList.remove("scale-100", "opacity-100");
+      card.classList.add("scale-0", "opacity-0");
+    }
+  }
+
+  function makeWidgetDraggable() {
+    const widget = document.getElementById("floatingChartWidget");
+    if (!widget) return;
+    
+    const triggerBtn = widget.querySelector("button.transform");
+    const cardHeader = document.getElementById("floatingChartCard").firstElementChild;
+    
+    if (triggerBtn) triggerBtn.style.cursor = "move";
+    if (cardHeader) cardHeader.style.cursor = "move";
+    
+    let isDragging = false;
+    let dragStartX = 0, dragStartY = 0;
+    let widgetOriginalLeft = 0, widgetOriginalTop = 0;
+    
+    const dragHandles = [triggerBtn, cardHeader];
+    dragHandles.forEach(handle => {
+      if (!handle) return;
+      handle.addEventListener("mousedown", dragStart);
+      handle.addEventListener("touchstart", dragStart, { passive: true });
+    });
+
+    function dragStart(e) {
+      if (e.target.closest("button") && !e.target.closest("button").classList.contains("transform")) {
+        return; 
+      }
+      
+      isDragging = true;
+      wasDragging = false;
+      
+      const rect = widget.getBoundingClientRect();
+      widgetOriginalLeft = rect.left;
+      widgetOriginalTop = rect.top;
+      
+      const clientX = e.type === "touchstart" ? e.touches[0].clientX : e.clientX;
+      const clientY = e.type === "touchstart" ? e.touches[0].clientY : e.clientY;
+      
+      dragStartX = clientX;
+      dragStartY = clientY;
+      
+      document.addEventListener("mousemove", dragMove);
+      document.addEventListener("touchmove", dragMove, { passive: false });
+      document.addEventListener("mouseup", dragEnd);
+      document.addEventListener("touchend", dragEnd);
+    }
+
+    function dragMove(e) {
+      if (!isDragging) return;
+      
+      const clientX = e.type === "touchmove" ? e.touches[0].clientX : e.clientX;
+      const clientY = e.type === "touchmove" ? e.touches[0].clientY : e.clientY;
+      
+      const deltaX = clientX - dragStartX;
+      const deltaY = clientY - dragStartY;
+      
+      if (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4) {
+        wasDragging = true;
+      }
+      
+      if (wasDragging) {
+        widget.style.bottom = "auto";
+        widget.style.right = "auto";
+        
+        let newLeft = widgetOriginalLeft + deltaX;
+        let newTop = widgetOriginalTop + deltaY;
+        
+        const rect = widget.getBoundingClientRect();
+        const screenWidth = window.innerWidth;
+        const screenHeight = window.innerHeight;
+        
+        if (newLeft < 10) newLeft = 10;
+        if (newLeft + rect.width > screenWidth - 10) newLeft = screenWidth - rect.width - 10;
+        
+        if (newTop < 10) newTop = 10;
+        if (newTop + rect.height > screenHeight - 10) newTop = screenHeight - rect.height - 10;
+        
+        widget.style.left = newLeft + "px";
+        widget.style.top = newTop + "px";
+      }
+      
+      if (e.type === "touchmove" && wasDragging) {
+        e.preventDefault();
+      }
+    }
+
+    function dragEnd() {
+      isDragging = false;
+      document.removeEventListener("mousemove", dragMove);
+      document.removeEventListener("touchmove", dragMove);
+      document.removeEventListener("mouseup", dragEnd);
+      document.removeEventListener("touchend", dragEnd);
+      
+      if (wasDragging) {
+        setTimeout(() => { wasDragging = false; }, 50);
+      }
+    }
+  }
+
+  function saveRAB() {
+    const p = document.getElementById("projectName").value.trim();
+    const e = document.getElementById("clientEmail").value.trim();
+    const n = document.getElementById("userNote").value.trim();
+    const t = parseFloat(document.getElementById("grandTotalLabel").dataset.value) || 0;
+    
+    if(!p) return alert("Silakan isi Nama Proyek!");
+    if(t === 0) return alert("Tabel Lembar Kalkulasi masih kosong!");
+    
+    const rows = document.getElementById("calculatorBody").children;
+    let items = [];
+    for(let i = 0; i < rows.length; i++) {
+      items.push({
+        fixtureName: rows[i].querySelector(".fixture-name").value.trim(),
+        materialName: rows[i].querySelector(".material-name").value.trim(),
+        unit: rows[i].querySelector(".unit-input").value.trim(),
+        qty: parseFloat(rows[i].querySelector(".qty-input").value) || 0,
+        unitPrice: parseFloat(rows[i].querySelector(".custom-price-input").value) || 0,
+        subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
+      });
+    }
+    
+    const activeProjId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
+    
+    showLoading(true, "Menyimpan versi draf RAB...");
+    google.script.run
+      .withFailureHandler(err => { showLoading(false); alert("Gagal menyimpan: " + err.message); })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (res.success) {
+          document.getElementById("projectName").setAttribute("data-active-project-id", res.projectId);
+          alert(`🎉 Draf RAB berhasil disimpan ke riwayat versi!\nID Proyek: ${res.projectId}\nCatatan revisi: ${n || 'Tidak ada catatan'}`);
+          document.getElementById("userNote").value = ""; // Kosongkan input catatan setelah simpan
+        } else {
+          alert("Gagal menyimpan: " + res.error);
+        }
+      }).saveRABVersion({
+        projectId: activeProjId,
+        projectName: p,
+        clientEmail: e,
+        userNote: n,
+        totalBudget: t,
+        items: items,
+        currentUser: sessionUser,
+        currentRole: sessionRole
+      });
+  }
+
+  function sendEmailRAB() {
+    const p = document.getElementById("projectName").value.trim();
+    let e = document.getElementById("clientEmail").value.trim();
+    const t = parseFloat(document.getElementById("grandTotalLabel").dataset.value) || 0;
+    
+    if(!p) return alert("Silakan isi Nama Proyek!");
+    if(t === 0) return alert("Tabel Lembar Kalkulasi masih kosong!");
+    
+    if(!e) {
+      const userInput = prompt("Masukkan alamat email klien untuk mengirimkan laporan PDF RAB:");
+      if (!userInput) return;
+      e = userInput.trim();
+      if (!e) return alert("Email klien tidak boleh kosong!");
+      document.getElementById("clientEmail").value = e;
+    }
+    
+    const rows = document.getElementById("calculatorBody").children;
+    let items = [];
+    for(let i = 0; i < rows.length; i++) {
+      items.push({
+        fixtureName: rows[i].querySelector(".fixture-name").value.trim(),
+        materialName: rows[i].querySelector(".material-name").value.trim(),
+        unit: rows[i].querySelector(".unit-input").value.trim(),
+        qty: parseFloat(rows[i].querySelector(".qty-input").value) || 0,
+        unitPrice: parseFloat(rows[i].querySelector(".custom-price-input").value) || 0,
+        subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
+      });
+    }
+    
+    const activeProjId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
+    
+    showLoading(true, "Membuat PDF dan mengirim email...");
+    google.script.run
+      .withFailureHandler(err => { showLoading(false); alert("Gagal mengirim email: " + err.message); })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (res.success) {
+          alert(`✉️ Laporan PDF RAB berhasil terkirim via email ke: ${e}!`);
+        } else {
+          alert("Gagal mengirim email: " + res.error);
+        }
+      }).sendRABEmail({
+        projectId: activeProjId,
+        projectName: p,
+        clientEmail: e,
+        totalBudget: t,
+        items: items,
+        currentUser: sessionUser,
+        currentRole: sessionRole
+      });
+  }
+
+  function restoreVersion(projectId) {
+    showLoading(true, `Mengunduh versi ${projectId}...`);
+    google.script.run
+      .withFailureHandler(err => { showLoading(false); alert("Gagal memuat versi: " + err.message); })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (res.success) {
+          document.getElementById("projectName").value = res.meta.projectName || "";
+          document.getElementById("clientEmail").value = res.meta.clientEmail || "";
+          document.getElementById("userNote").value = "";
+          
+          document.getElementById("projectName").setAttribute("data-active-project-id", projectId);
+          
+          const tbody = document.getElementById("calculatorBody");
+          tbody.innerHTML = "";
+          
+          if (res.items.length === 0) {
+            addNewRow();
+          } else {
+            res.items.forEach(item => {
+              appendRowUI(item.fixtureName, item.materialName, item.qty, item.unitPrice, "#", item.unit || "ea");
+            });
+          }
+          
+          recalculateGrandTotal();
+          toggleView('workspaceGrid');
+          alert(`🎉 Berhasil memuat Versi ${projectId} ("${res.meta.projectName}") ke Lembar Kalkulasi!`);
+        } else {
+          alert("Gagal memuat data: " + res.error);
+        }
+      }).getProjectDetails(projectId);
+  }
+
+  function sendEmailFromHistory(projectId, storedEmail) {
+    let email = (storedEmail || "").trim();
+    if (!email) {
+      const userInput = prompt("Project ini tidak memiliki data Email Klien.\nMasukkan alamat email klien untuk mengirimkan PDF:");
+      if (!userInput) return;
+      email = userInput.trim();
+      if (!email) return alert("Email klien tidak boleh kosong!");
+    }
+    
+    showLoading(true, "Mengirim PDF laporan versi arsip...");
+    google.script.run
+      .withFailureHandler(err => { showLoading(false); alert("Gagal mengirim email: " + err.message); })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (res.success) {
+          alert(`📧 Laporan PDF RAB versi ${projectId} berhasil terkirim ke klien (${email})!`);
+        } else {
+          alert("Gagal mengirim email: " + res.error);
+        }
+      }).sendRABEmailFromHistory(projectId, email);
+  }
+
+  function confirmDeleteProject(projectId, projectName) {
+    const isConfirmed = confirm(`⚠️ Peringatan Permanen!\n\nApakah Anda yakin ingin menghapus proyek "${projectName}" (${projectId}) dari arsip?\n\nSemua baris rincian material yang terhubung di Google Sheets akan dihapus selamanya!`);
+    if (!isConfirmed) return;
+    
+    showLoading(true, "Menghapus proyek dari arsip...");
+    google.script.run
+      .withFailureHandler(err => {
+        showLoading(false);
+        showToast("Koneksi Gagal: " + err.message, "error");
+      })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (res.success) {
+          showToast(`Proyek "${projectName}" berhasil dihapus dari arsip!`, "success");
+          openHistory(); // Muat ulang riwayat agar tabel diperbarui secara live
+        } else {
+          showToast("Gagal menghapus: " + res.error, "error");
+        }
+      }).deleteProjectArchive(projectId);
+  }
+
+  function initializeChart() { chartInstance = new Chart(document.getElementById('analyticsChart').getContext('2d'), { type: 'doughnut', data: { labels: ['Kosong'], datasets: [{ data: [100], backgroundColor: ['#cbd5e1'] }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false } } } }); }
+  function updateChart(data) { const l = Object.keys(data), v = Object.values(data); if (l.length===0) { chartInstance.data.labels=['Kosong']; chartInstance.data.datasets[0].data=[100]; chartInstance.data.datasets[0].backgroundColor=['#cbd5e1']; } else { chartInstance.data.labels=l; chartInstance.data.datasets[0].data=v; chartInstance.data.datasets[0].backgroundColor=['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6']; } chartInstance.update(); }
+  function openHistory() { 
+    toggleView('historySection'); 
+    showLoading(true, "Memuat Arsip Proyek..."); 
+    google.script.run
+      .withFailureHandler(err => { 
+        showLoading(false); 
+        alert("Server Error saat memuat arsip: " + err.message); 
+      })
+      .withSuccessHandler(d => {
+        showLoading(false); 
+        allHistory = d || []; 
+        renderHistoryTable(allHistory);
+      })
+      .getProjectHistory(); 
+  }
+  
+  function filterHistory() { 
+    const q = document.getElementById("searchProject").value.toLowerCase(); 
+    renderHistoryTable(allHistory.filter(p => (p.Project_Name || "").toLowerCase().includes(q))); 
+  }
+  
+  function runSpreadsheetDiagnostics() {
+    const tbody = document.getElementById("historyTbody");
+    if (!tbody) return;
+    
+    showLoading(true, "Menjalankan Diagnosis...");
+    google.script.run
+      .withFailureHandler(err => {
+        showLoading(false);
+        alert("Gagal menjalankan diagnosis: " + err.message);
+      })
+      .withSuccessHandler(res => {
+        showLoading(false);
+        if (!res) {
+          alert("Gagal memuat diagnosis: Server mengembalikan nilai null (kesalahan serialisasi).");
+          return;
+        }
+        if (res.success) {
+          const list = res.sheets.map(s => {
+            let sampleStr = s.sample.map(r => JSON.stringify(r)).join("<br>");
+            return `
+              <div class="p-4 bg-slate-50 border border-slate-200 rounded-2xl mb-3 text-left">
+                <div class="flex justify-between items-center mb-1 flex-wrap gap-1">
+                  <span class="font-bold text-sm text-slate-800">📄 Lembar: <span class="text-blue-700">${s.name}</span></span>
+                  <span class="text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-bold">${s.rows} baris, ${s.cols} kolom</span>
+                </div>
+                <div class="overflow-x-auto max-h-32 text-[11px] font-mono text-slate-600 bg-white p-3 rounded-xl border mt-2 leading-relaxed whitespace-pre-wrap">${sampleStr || 'Tidak ada data (Lembar Kosong)'}</div>
+              </div>
+            `;
+          }).join("");
+          
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="7" class="p-5 bg-white text-left">
+                <div class="space-y-4 max-w-4xl mx-auto">
+                  <div class="border-b border-slate-200 pb-3 mb-2 flex justify-between items-center flex-wrap gap-2">
+                    <div>
+                      <h4 class="font-black text-slate-900 text-lg flex items-center gap-2">📊 HASIL DIAGNOSIS SPREADSHEET</h4>
+                      <p class="text-xs text-slate-500 mt-1">Spreadsheet Terhubung: <a href="${res.url}" target="_blank" class="text-indigo-600 underline font-black hover:text-indigo-800">${res.url}</a></p>
+                    </div>
+                    <button onclick="openHistory()" class="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow">🔄 Muat Ulang Riwayat</button>
+                  </div>
+                  <div class="space-y-2">
+                    ${list}
+                  </div>
+                </div>
+              </td>
+            </tr>
+          `;
+        } else {
+          alert("Gagal diagnosis: " + res.error);
+        }
+      })
+      .getSpreadsheetDiag();
+  }
+  
+  function renderHistoryTable(d) {
+    const tbody = document.getElementById("historyTbody");
+    if (!tbody) return;
+    
+    if (!d || !Array.isArray(d) || d.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-400">Arsip kosong. <button onclick="runSpreadsheetDiagnostics()" class="text-indigo-600 hover:text-indigo-800 underline font-black ml-2">🔍 Jalankan Diagnosis Spreadsheet</button></td></tr>`;
+      return;
+    }
+    
+    try {
+      tbody.innerHTML = d.map(p => {
+        const formattedTotal = p.Total_Budget ? p.Total_Budget.toLocaleString('id-ID') : '0';
+        const userNoteText = p.User_Note || '<span class="text-slate-400 italic text-[11px]">-</span>';
+        
+        let dateStr = "Tanggal Tidak Valid";
+        try {
+          if (p.Timestamp) {
+            const dateObj = new Date(p.Timestamp);
+            if (!isNaN(dateObj.getTime())) {
+              dateStr = dateObj.toLocaleString('id-ID');
+            } else {
+              // Fallback: If dateObj is invalid, use raw Timestamp directly!
+              dateStr = p.Timestamp;
+            }
+          }
+        } catch (dateErr) {
+          console.error(dateErr);
+          dateStr = p.Timestamp || "Tanggal Tidak Valid";
+        }
+        
+        return `
+          <tr class="text-sm border-b hover:bg-slate-50 transition flex flex-col md:table-row w-full">
+            <td class="p-4 font-medium"><span class="md:hidden font-bold block text-[10px] uppercase text-slate-400">Tgl:</span>${dateStr}</td>
+            <td class="p-4"><span class="md:hidden font-bold block text-[10px] uppercase text-slate-400">ID:</span><span class="text-xs font-mono font-bold bg-slate-100 text-slate-700 px-2 py-1 rounded">${p.Project_ID || ''}</span></td>
+            <td class="p-4 font-bold text-slate-900"><span class="md:hidden font-bold block text-[10px] uppercase text-slate-400">Nama Proyek:</span>${p.Project_Name || ''}</td>
+            <td class="p-4 text-slate-600"><span class="md:hidden font-bold block text-[10px] uppercase text-slate-400">Klien:</span>${p.Client_Email || ''}</td>
+            <td class="p-4 font-mono font-bold text-indigo-700"><span class="md:hidden font-bold block text-[10px] uppercase text-slate-400">Total:</span>Rp ${formattedTotal}</td>
+            <td class="p-4 text-slate-700 text-xs"><span class="md:hidden font-bold block text-[10px] uppercase text-slate-400">Catatan:</span>${userNoteText}</td>
+            <td class="p-4 text-center">
+              <span class="md:hidden font-bold block text-[10px] uppercase text-slate-400 mb-1">Aksi:</span>
+              <div class="flex items-center justify-center gap-1.5 flex-wrap">
+                <button onclick="restoreVersion('${p.Project_ID || ''}')" title="Muat versi ini ke Kalkulator" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold px-3 py-1.5 rounded-lg transition border border-indigo-200 flex items-center gap-0.5 shadow-sm">🔄 Muat</button>
+                <button onclick="sendEmailFromHistory('${p.Project_ID || ''}', '${p.Client_Email || ''}')" title="Kirim email laporan PDF versi ini" class="bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-lg transition border border-emerald-200 flex items-center gap-0.5 shadow-sm">✉️ Kirim</button>
+                <button onclick="confirmDeleteProject('${p.Project_ID || ''}', '${(p.Project_Name || '').replace(/'/g, "\\'")}')" title="Hapus proyek ini dari arsip" class="bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold px-3 py-1.5 rounded-lg transition border border-rose-200 flex items-center gap-0.5 shadow-sm">🗑️ Hapus</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    } catch (err) {
+      console.error("Error rendering table: ", err);
+      tbody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-rose-500">Error menampilkan data: ${err.message}</td></tr>`;
+    }
+  }
+
+  // AI Cost Optimizer Controls
+  let tempOptimizedRAB = [];
+
+  function runCostOptimizer() {
+    const rows = document.getElementById("calculatorBody").children;
+    if(rows.length === 0) return alert("Tabel RAB kosong!");
+    
+    let currentRab = [];
+    for(let r of rows) {
+      currentRab.push({
+        fixtureName: r.querySelector('.fixture-name').value.trim(),
+        materialName: r.querySelector('.material-name').value.trim(),
+        unit: r.querySelector('.unit-input').value.trim(),
+        qty: parseFloat(r.querySelector('.qty-input').value)||0,
+        unitPrice: parseFloat(r.querySelector('.custom-price-input').value)||0
+      });
+    }
+    
+    showLoading(true, "AI Quantity Surveyor menganalisis penghematan...");
+    google.script.run.withSuccessHandler(res => {
+      showLoading(false);
+      if(res.success) {
+        tempOptimizedRAB = res.data.optimizedRab;
+        
+        const outputDiv = document.getElementById("optimizerOutput");
+        const explanationDiv = document.getElementById("optimizerExplanation");
+        explanationDiv.innerHTML = res.data.explanation;
+        
+        outputDiv.classList.remove("hidden");
+        explanationDiv.scrollTop = 0;
+        
+        alert("✅ Analisis penghematan selesai! Baca rekomendasi di sebelah kanan, dan klik 'Terapkan Rekomendasi Hemat' jika Anda setuju untuk mengupdate tabel.");
+      } else {
+        alert("Gagal melakukan optimasi: " + res.error);
+      }
+    }).optimizeRAB(currentRab);
+  }
+
+  function applyOptimizedRAB() {
+    if(!tempOptimizedRAB || tempOptimizedRAB.length === 0) return alert("Tidak ada rekomendasi hemat untuk diterapkan.");
+    
+    const tbody = document.getElementById("calculatorBody");
+    tbody.innerHTML = "";
+    
+    tempOptimizedRAB.forEach(item => {
+      appendRowUI(item.fixtureName, item.materialName, item.qty, item.unitPrice, "#", item.unit || "ea");
+    });
+    
+    recalculateGrandTotal();
+    document.getElementById("optimizerOutput").classList.add("hidden");
+    alert("✅ Tabel kalkulasi telah diperbarui dengan material hemat alternatif!");
+  }
+</script>

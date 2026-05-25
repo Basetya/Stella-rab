@@ -86,8 +86,17 @@ function setupDatabase() {
 function loginUser(u, p) {
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const userSheet = getSheetByNameRobust(ss, "Config_Users");
-    if (!userSheet) return { success: false, error: "Sheet Config_Users tidak ditemukan! Jalankan Setup Database terlebih dahulu." };
+    if (!ss) return { success: false, error: "Active Spreadsheet tidak ditemukan! Pastikan skrip ini terikat (container-bound) ke Google Sheets." };
+    
+    let userSheet = getSheetByNameRobust(ss, "Config_Users");
+    
+    // Auto-setup database jika sheet user tidak ditemukan
+    if (!userSheet) {
+      setupDatabase();
+      userSheet = getSheetByNameRobust(ss, "Config_Users");
+    }
+    
+    if (!userSheet) return { success: false, error: "Gagal menginisialisasi database secara otomatis. Periksa izin akses spreadsheet Anda." };
     
     const data = userSheet.getDataRange().getValues();
     let authUser = null;
@@ -101,7 +110,7 @@ function loginUser(u, p) {
       writeLog(authUser.username, authUser.role, "LOGIN", "Berhasil masuk"); 
       return { success: true, user: authUser }; 
     } else {
-      return { success: false, error: "Username/Password salah!" };
+      return { success: false, error: "Username atau Password salah! (Default: stella / owner123)" };
     }
   } catch (e) { return { success: false, error: e.toString() }; }
 }

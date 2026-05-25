@@ -127,13 +127,110 @@
     calcRow(rowId);
   }
 
-  // Fungsi Hemat Kuota (Buka Web Browser Gratis)
+  // Fungsi Hemat Kuota (Buka Web Browser Gratis dengan Asisten Rujukan Harga)
   function openManualWebSearch(rowId) {
     const row = document.getElementById(rowId); 
+    if (!row) return;
     const matName = row.querySelector(".material-name").value.trim();
     if(!matName) return alert("Silakan isi nama material terlebih dahulu!");
+    
+    // 1. Buka Google Shopping di Tab Baru
     const query = encodeURIComponent("Harga " + matName);
     window.open(`https://www.google.co.id/search?tbm=shop&q=${query}`, "_blank");
+    
+    // 2. Injeksi & Munculkan Modal Rujukan Manual
+    let modal = document.getElementById("manualSearchModal");
+    if (!modal) {
+      modal = document.createElement("div");
+      modal.id = "manualSearchModal";
+      modal.className = "fixed inset-0 flex justify-center items-center p-3 z-50 bg-slate-950/80 backdrop-blur-md transition-all duration-300 opacity-0 pointer-events-none";
+      document.body.appendChild(modal);
+    }
+    
+    modal.innerHTML = `
+      <div class="bg-slate-900/95 border border-white/10 p-6 rounded-[2.5rem] shadow-2xl w-full max-w-sm text-white space-y-5 transform scale-95 transition-all duration-300">
+        <div class="flex justify-between items-center border-b border-white/10 pb-3">
+          <h3 class="text-sm font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400 flex items-center gap-1.5">🔍 Rujukan Harga Manual</h3>
+          <button onclick="closeManualSearchModal()" class="text-slate-400 hover:text-white text-xs bg-white/5 hover:bg-white/10 p-1.5 rounded-full transition cursor-pointer">✕</button>
+        </div>
+        
+        <div class="space-y-1">
+          <p class="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Nama Material:</p>
+          <p class="text-xs font-black text-blue-300 bg-white/5 p-3 rounded-xl border border-white/5 truncate">${matName}</p>
+        </div>
+        
+        <div class="space-y-3">
+          <div class="space-y-1">
+            <label class="text-[9px] uppercase font-bold text-slate-400 ml-1">Berapa harga yang Anda temukan?</label>
+            <div class="relative flex items-center">
+              <span class="absolute left-4 text-xs font-black text-slate-400">Rp</span>
+              <input type="number" id="modalPriceInput" placeholder="Masukkan angka saja..." class="w-full p-3.5 pl-10 bg-slate-950/50 border border-white/10 rounded-2xl outline-none focus:border-blue-500 text-sm font-bold text-white transition">
+            </div>
+          </div>
+          
+          <div class="space-y-1">
+            <label class="text-[9px] uppercase font-bold text-slate-400 ml-1">Link URL Toko (Opsional)</label>
+            <input type="text" id="modalUrlInput" placeholder="Tempel link Tokopedia/Shopee/dll..." class="w-full p-3.5 bg-slate-950/50 border border-white/10 rounded-2xl outline-none focus:border-blue-500 text-[10px] font-medium text-slate-350 transition">
+          </div>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-3 pt-1">
+          <button onclick="applyManualPrice('${rowId}', false)" class="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white p-3 rounded-xl text-[11px] font-black transition shadow-lg shadow-blue-500/20 cursor-pointer">✅ Gunakan Harga</button>
+          <button onclick="applyManualPrice('${rowId}', true)" class="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white p-3 rounded-xl text-[11px] font-black transition shadow-lg shadow-emerald-500/20 cursor-pointer">➕ Jadi Master</button>
+        </div>
+      </div>
+    `;
+    
+    // Tampilkan modal dengan animasi halus
+    setTimeout(() => {
+      modal.classList.remove("opacity-0", "pointer-events-none");
+      modal.querySelector("div").classList.remove("scale-95");
+    }, 50);
+  }
+
+  function closeManualSearchModal() {
+    const modal = document.getElementById("manualSearchModal");
+    if (modal) {
+      modal.querySelector("div").classList.add("scale-95");
+      modal.classList.add("opacity-0", "pointer-events-none");
+    }
+  }
+
+  function applyManualPrice(rowId, saveToMaster = false) {
+    const priceInput = document.getElementById("modalPriceInput");
+    const urlInput = document.getElementById("modalUrlInput");
+    if (!priceInput) return;
+    
+    const price = parseFloat(priceInput.value) || 0;
+    const url = (urlInput ? urlInput.value.trim() : "") || "#";
+    
+    if (price <= 0) return alert("Masukkan harga rujukan yang valid (lebih besar dari 0)!");
+    
+    const row = document.getElementById(rowId);
+    if (!row) return;
+    const matName = (row.querySelector(".material-name").value || "").trim();
+    const matUnit = (row.querySelector(".unit-input") ? row.querySelector(".unit-input").value : "ea");
+    
+    // 1. Jalankan visual rujukan harga ke baris lokal
+    const dummyRes = {
+      success: true,
+      data: {
+        actualPrice: price,
+        sourceUrl: url
+      }
+    };
+    
+    handleResearchResult(rowId, dummyRes, "Manual Web");
+    closeManualSearchModal();
+    playChimeSoftly();
+    showToast(`Berhasil menerapkan harga rujukan: Rp ${price.toLocaleString('id-ID')}`, "success");
+    
+    // 2. Jika dipilih "Jadikan Master", kirim data ke Google Sheets Master
+    if (saveToMaster) {
+      setTimeout(() => {
+        pushRowToMaster(rowId, btoa(encodeURIComponent(matName)), price, matUnit, url);
+      }, 500);
+    }
   }
 
   // Batch menu controls

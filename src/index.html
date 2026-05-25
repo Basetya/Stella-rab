@@ -103,13 +103,13 @@
           class="bg-white/95 backdrop-blur-xl p-5 md:p-6 rounded-3xl shadow-xl border border-slate-100 space-y-4 w-full min-w-0">
           <h2 class="text-lg font-bold text-slate-900 border-b border-slate-200 pb-2">1. Info Proyek</h2>
           <div class="grid grid-cols-1 sm:grid-cols-4 gap-4 w-full">
-            <input type="text" id="projectName" placeholder="Nama Proyek"
+            <input type="text" id="projectName" placeholder="Nama Proyek" oninput="saveWorkspaceToLocalStorage()"
               class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
-            <input type="email" id="clientEmail" placeholder="Email Klien (Opsional saat Simpan)"
+            <input type="email" id="clientEmail" placeholder="Email Klien (Opsional saat Simpan)" oninput="saveWorkspaceToLocalStorage()"
               class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
-            <input type="number" id="targetBudget" placeholder="Target Anggaran (Rp)" oninput="recalculateGrandTotal()"
+            <input type="number" id="targetBudget" placeholder="Target Anggaran (Rp)" oninput="recalculateGrandTotal(); saveWorkspaceToLocalStorage()"
               class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-bold text-sm text-slate-900">
-            <input type="text" id="userNote" placeholder="Catatan Versi (contoh: Draft Awal / Kayu Lapis)"
+            <input type="text" id="userNote" placeholder="Catatan Versi (contoh: Draft Awal / Kayu Lapis)" oninput="saveWorkspaceToLocalStorage()"
               class="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl outline-none font-medium text-sm">
           </div>
         </div>
@@ -483,6 +483,41 @@
     </div>
     <p id="loadingMsg" class="font-bold text-base tracking-widest uppercase animate-pulse text-center px-4">Memproses...
     </p>
+  </div>
+
+  <!-- Glassmorphic Restore Session Modal -->
+  <div id="restoreSessionModal" class="fixed inset-0 flex justify-center items-center p-3 z-50 bg-slate-950/80 backdrop-blur-md transition-all duration-300 opacity-0 pointer-events-none">
+    <div class="glass-card-dark p-8 rounded-[2.5rem] shadow-2xl w-[95%] max-w-md space-y-6 mx-auto border border-white/10 text-white transform scale-95 transition-all duration-300">
+      <div class="text-center space-y-2">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 text-3xl mb-2 border border-emerald-500/30 animate-pulse">
+          💾
+        </div>
+        <h3 class="text-2xl font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-300">Sesi Draf Tersimpan</h3>
+        <p class="text-slate-400 text-xs font-semibold uppercase tracking-wider">Kami menemukan draf pekerjaan sebelumnya</p>
+      </div>
+      
+      <div class="bg-white/5 border border-white/10 p-4 rounded-2xl space-y-3">
+        <div class="flex justify-between items-center text-xs">
+          <span class="text-slate-400 font-medium">Nama Proyek:</span>
+          <span id="restoreProjName" class="font-bold text-white max-w-[180px] truncate">Desain Booth Pameran</span>
+        </div>
+        <div class="flex justify-between items-center text-xs">
+          <span class="text-slate-400 font-medium">Total Estimasi:</span>
+          <span id="restoreProjTotal" class="font-bold font-mono text-emerald-400">Rp 0</span>
+        </div>
+        <div class="flex justify-between items-center text-xs border-t border-white/5 pt-2 mt-2">
+          <span class="text-slate-400 font-medium">Jumlah Item:</span>
+          <span id="restoreProjItems" class="font-bold text-white">0 Item kalkulasi</span>
+        </div>
+      </div>
+
+      <p class="text-xs text-slate-300 leading-relaxed text-center">Apakah Anda ingin memulihkan draf sesi ini dan melanjutkan pekerjaan terakhir Anda?</p>
+
+      <div class="grid grid-cols-2 gap-3 pt-2">
+        <button onclick="restoreWorkspaceDraft()" class="bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white p-4 rounded-2xl text-sm font-black transition shadow-lg shadow-emerald-500/20 cursor-pointer text-center">Lanjutkan Sesi 🚀</button>
+        <button onclick="closeRestoreModal(true)" class="bg-white/5 hover:bg-rose-500/20 hover:text-rose-300 border border-white/10 hover:border-rose-500/30 text-slate-300 p-4 rounded-2xl text-sm font-bold transition cursor-pointer text-center">Hapus & Baru ✕</button>
+      </div>
+    </div>
   </div>
 
   <?!= include('JS'); ?>

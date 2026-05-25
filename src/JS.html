@@ -32,6 +32,7 @@
           document.getElementById("appScreen").classList.remove("hidden");
           document.getElementById("floatingChartWidget").classList.remove("hidden");
           if(document.getElementById("calculatorBody").children.length===0) addNewRow();
+          checkForSavedWorkspace();
         } else alert(res.error);
       }).loginUser(u, p);
   }
@@ -89,15 +90,15 @@
     tr.innerHTML = `
       <td class="p-3 md:p-4 flex flex-col md:table-cell border-b md:border-0 border-slate-100">
          <span class="md:hidden font-bold text-[11px] uppercase text-slate-400 mb-1">Fixture</span>
-         <input type="text" value="${fixName}" class="fixture-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-medium" placeholder="Bagian Ruangan">
+         <input type="text" value="${fixName}" oninput="saveWorkspaceToLocalStorage()" class="fixture-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-medium" placeholder="Bagian Ruangan">
       </td>
       <td class="p-3 md:p-4 flex flex-col md:table-cell border-b md:border-0 border-slate-100">
          <span class="md:hidden font-bold text-[11px] uppercase text-slate-400 mb-1">Material</span>
-         <input type="text" value="${matName}" class="material-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-bold text-blue-700" placeholder="Nama Material">
+         <input type="text" value="${matName}" oninput="saveWorkspaceToLocalStorage()" class="material-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-bold text-blue-700" placeholder="Nama Material">
       </td>
       <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
          <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">Satuan</span>
-         <input type="text" value="${unit}" class="unit-input w-16 p-2 text-center border border-slate-200 rounded-xl font-bold bg-slate-50 text-slate-900 text-xs" placeholder="ea">
+         <input type="text" value="${unit}" oninput="saveWorkspaceToLocalStorage()" class="unit-input w-16 p-2 text-center border border-slate-200 rounded-xl font-bold bg-slate-50 text-slate-900 text-xs" placeholder="ea">
       </td>
       <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
          <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">QTY</span>
@@ -960,6 +961,7 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     }
     
     updateChart(fb); 
+    saveWorkspaceToLocalStorage();
   }
 
   function sendBrainstorm() {
@@ -1172,6 +1174,7 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
           document.getElementById("projectName").setAttribute("data-active-project-id", res.projectId);
           alert(`🎉 Draf RAB berhasil disimpan ke riwayat versi!\nID Proyek: ${res.projectId}\nCatatan revisi: ${n || 'Tidak ada catatan'}`);
           document.getElementById("userNote").value = ""; // Kosongkan input catatan setelah simpan
+          localStorage.removeItem("stella_rab_draft_session"); // Bersihkan draf lokal setelah sukses simpan ke cloud
         } else {
           alert("Gagal menyimpan: " + res.error);
         }
@@ -1627,6 +1630,273 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     } else {
       content.classList.add("hidden");
       if (btn) btn.innerText = "Buka ↓";
+    }
+  }
+
+  // ==========================================
+  // FITUR PREMIUM: AUTO-SAVE & SESSION RESTORE
+  // ==========================================
+
+  function saveWorkspaceToLocalStorage() {
+    try {
+      if (!sessionUser) return; // Simpan hanya jika sesi login aktif
+
+      const projectName = document.getElementById("projectName").value.trim();
+      const clientEmail = document.getElementById("clientEmail").value.trim();
+      const userNote = document.getElementById("userNote").value.trim();
+      const targetBudget = parseFloat(document.getElementById("targetBudget").value) || 0;
+      const contingencyRate = parseFloat(document.getElementById("contingencyRate").value) || 0;
+      const markupRate = parseFloat(document.getElementById("markupRate").value) || 0;
+      const activeProjectId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
+      
+      // Mengambil item-item tabel kalkulasi
+      const rows = document.getElementById("calculatorBody").children;
+      const items = [];
+      for (let r of rows) {
+        // Mencegah error jika input tidak ditemukan
+        const fixInput = r.querySelector(".fixture-name");
+        const matInput = r.querySelector(".material-name");
+        const unitInput = r.querySelector(".unit-input");
+        const qtyInput = r.querySelector(".qty-input");
+        const priceInput = r.querySelector(".custom-price-input");
+        const refLinkArea = r.querySelector(".ref-link-area");
+
+        if (fixInput && matInput) {
+          items.push({
+            fixtureName: fixInput.value,
+            materialName: matInput.value,
+            unit: unitInput ? unitInput.value : "ea",
+            qty: qtyInput ? parseFloat(qtyInput.value) || 0 : 0,
+            unitPrice: priceInput ? parseFloat(priceInput.value) || 0 : 0,
+            refHtml: refLinkArea ? refLinkArea.innerHTML : "",
+            prevPrice: r.getAttribute("data-prev-price") || "",
+            prevRef: r.getAttribute("data-prev-ref") || "",
+            researchedPrice: r.getAttribute("data-researched-price") || "",
+            researchedRef: r.getAttribute("data-researched-ref") || "",
+            subtotal: parseFloat(r.getAttribute("data-subtotal")) || 0
+          });
+        }
+      }
+
+      // Mengambil log chat AI Brainstormer
+      const chatHistoryDiv = document.getElementById("chatHistory");
+      const chatMessages = [];
+      if (chatHistoryDiv) {
+        const children = Array.from(chatHistoryDiv.children);
+        children.forEach(child => {
+          if (child.classList.contains("italic") && child.innerText.includes("Mulai percakapan")) return;
+          
+          const isUser = child.classList.contains("text-right");
+          const isAssistant = child.classList.contains("text-left");
+          
+          if (isUser || isAssistant) {
+            chatMessages.push({
+              type: isUser ? "user" : "assistant",
+              html: child.innerHTML
+            });
+          }
+        });
+      }
+
+      const payload = {
+        projectName,
+        clientEmail,
+        userNote,
+        targetBudget,
+        contingencyRate,
+        markupRate,
+        activeProjectId,
+        items,
+        chatMessages: chatMessages.slice(-15), // Batasi 15 log pesan terakhir
+        currentUploadedImageBase64,
+        timestamp: Date.now()
+      };
+
+      localStorage.setItem("stella_rab_draft_session", JSON.stringify(payload));
+    } catch (err) {
+      console.error("Gagal melakukan auto-save ke localStorage: ", err);
+    }
+  }
+
+  function checkForSavedWorkspace() {
+    try {
+      const rawData = localStorage.getItem("stella_rab_draft_session");
+      if (!rawData) return;
+
+      const payload = JSON.parse(rawData);
+      if (!payload) return;
+
+      const hasItems = payload.items && payload.items.length > 0;
+      const hasProjInfo = payload.projectName || payload.clientEmail || payload.targetBudget > 0;
+      const hasChat = payload.chatMessages && payload.chatMessages.length > 0;
+
+      if (!hasItems && !hasProjInfo && !hasChat) {
+        localStorage.removeItem("stella_rab_draft_session");
+        return;
+      }
+
+      // Mengisi metadata di modal pemulihan draf
+      document.getElementById("restoreProjName").innerText = payload.projectName || "(Tanpa Nama Proyek)";
+      document.getElementById("restoreProjItems").innerText = (payload.items ? payload.items.length : 0) + " Item kalkulasi";
+      
+      const baseTotal = (payload.items || []).reduce((acc, item) => acc + ((item.qty || 0) * (item.unitPrice || 0)), 0);
+      const subtotalAfterContingency = baseTotal * (1 + (payload.contingencyRate || 0) / 100);
+      const grandTotal = subtotalAfterContingency * (1 + (payload.markupRate || 0) / 100);
+      document.getElementById("restoreProjTotal").innerText = "Rp " + Math.round(grandTotal).toLocaleString('id-ID');
+
+      // Tampilkan modal pemulihan draf secara elegan
+      const modal = document.getElementById("restoreSessionModal");
+      if (modal) {
+        setTimeout(() => {
+          modal.classList.remove("opacity-0", "pointer-events-none");
+          modal.querySelector("div").classList.remove("scale-95");
+        }, 300);
+      }
+    } catch (err) {
+      console.error("Gagal memeriksa draf tersimpan: ", err);
+    }
+  }
+
+  function restoreWorkspaceDraft() {
+    try {
+      const rawData = localStorage.getItem("stella_rab_draft_session");
+      if (!rawData) return closeRestoreModal(false);
+
+      const payload = JSON.parse(rawData);
+      if (!payload) return closeRestoreModal(false);
+
+      showLoading(true, "Memulihkan sesi pekerjaan Anda...");
+
+      // Pulihkan Informasi Proyek
+      document.getElementById("projectName").value = payload.projectName || "";
+      document.getElementById("clientEmail").value = payload.clientEmail || "";
+      document.getElementById("userNote").value = payload.userNote || "";
+      document.getElementById("targetBudget").value = payload.targetBudget || "";
+      document.getElementById("contingencyRate").value = payload.contingencyRate || 0;
+      document.getElementById("markupRate").value = payload.markupRate || 0;
+      
+      if (payload.activeProjectId) {
+        document.getElementById("projectName").setAttribute("data-active-project-id", payload.activeProjectId);
+      } else {
+        document.getElementById("projectName").removeAttribute("data-active-project-id");
+      }
+
+      // Pulihkan gambar base64 untuk chat brainstorm
+      currentUploadedImageBase64 = payload.currentUploadedImageBase64 || "";
+
+      // Pulihkan baris tabel Lembar Kalkulasi
+      const tbody = document.getElementById("calculatorBody");
+      tbody.innerHTML = ""; // Bersihkan tabel default
+
+      if (payload.items && payload.items.length > 0) {
+        payload.items.forEach(item => {
+          const rowId = "row_" + Date.now() + "_" + Math.floor(Math.random()*1000) + "_" + Math.floor(Math.random()*1000);
+          const tr = document.createElement("tr");
+          tr.id = rowId;
+          tr.className = "text-sm border-b border-slate-100 hover:bg-slate-50 transition flex flex-col md:table-row mb-4 md:bg-transparent rounded-2xl md:rounded-none overflow-hidden bg-white shadow-sm md:shadow-none";
+          
+          tr.innerHTML = `
+            <td class="p-3 md:p-4 flex flex-col md:table-cell border-b md:border-0 border-slate-100">
+               <span class="md:hidden font-bold text-[11px] uppercase text-slate-400 mb-1">Fixture</span>
+               <input type="text" value="${item.fixtureName || ''}" oninput="saveWorkspaceToLocalStorage()" class="fixture-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-medium" placeholder="Bagian Ruangan">
+            </td>
+            <td class="p-3 md:p-4 flex flex-col md:table-cell border-b md:border-0 border-slate-100">
+               <span class="md:hidden font-bold text-[11px] uppercase text-slate-400 mb-1">Material</span>
+               <input type="text" value="${item.materialName || ''}" oninput="saveWorkspaceToLocalStorage()" class="material-name w-full p-2 bg-transparent border border-slate-200 md:border-0 rounded-lg outline-none font-bold text-blue-700" placeholder="Nama Material">
+            </td>
+            <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
+               <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">Satuan</span>
+               <input type="text" value="${item.unit || 'ea'}" oninput="saveWorkspaceToLocalStorage()" class="unit-input w-16 p-2 text-center border border-slate-200 rounded-xl font-bold bg-slate-50 text-slate-900 text-xs" placeholder="ea">
+            </td>
+            <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
+               <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">QTY</span>
+               <input type="number" step="0.01" value="${item.qty || 1}" oninput="calcRow('${rowId}')" class="qty-input w-24 p-2 text-center border border-slate-200 rounded-xl font-bold bg-slate-50">
+            </td>
+            <td class="p-3 md:p-4 flex justify-between items-center md:table-cell border-b md:border-0 border-slate-100">
+               <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">Harga Satuan</span>
+               <div class="flex items-center font-mono">Rp <input type="number" value="${item.unitPrice || 0}" oninput="calcRow('${rowId}')" class="custom-price-input w-28 p-2 border border-slate-200 rounded-xl font-bold bg-slate-50 text-slate-900 ml-1"></div>
+            </td>
+            <td class="p-3 md:p-4 flex flex-col justify-center items-center border-b md:border-0 border-slate-100 gap-1">
+               <div class="grid grid-cols-2 gap-1 w-full max-w-[180px] md:max-w-none">
+                  <button onclick="runGeminiResearch('${rowId}')" title="Gemini AI Google Search Grounding (Direkomendasikan - Sangat Akurat)" class="col-span-2 text-[9px] bg-purple-600 hover:bg-purple-700 text-white p-1.5 rounded-lg font-bold transition flex items-center justify-center gap-0.5 shadow-sm shadow-purple-500/20">🤖 AI (Grounding)</button>
+                  <button onclick="runSerpApiResearch('${rowId}')" title="Google Shopping via SerpApi (Kuota Premium)" class="text-[9px] bg-amber-50 hover:bg-amber-100 text-amber-700 p-1.5 rounded-lg font-bold transition flex items-center justify-center gap-0.5 border border-amber-200/50">⚡ Serp</button>
+                  <button onclick="openManualWebSearch('${rowId}')" title="Cari Manual Gratis via Tab Baru" class="text-[9px] bg-slate-50 hover:bg-slate-100 text-slate-700 p-1.5 rounded-lg font-bold transition flex items-center justify-center gap-0.5 border border-slate-200/50">🔍 Web</button>
+               </div>
+               <div class="ref-link-area text-center w-full mt-1">${item.refHtml || ""}</div>
+            </td>
+            <td class="p-4 md:p-4 flex justify-between items-center md:table-cell bg-slate-50 md:bg-transparent border-b md:border-0 border-slate-100">
+               <span class="md:hidden font-bold text-[11px] uppercase text-slate-400">Subtotal</span>
+               <span class="subtotal-label text-right font-black font-mono text-lg md:text-base text-slate-900">Rp 0</span>
+            </td>
+            <td class="p-3 md:p-4 flex justify-center items-center bg-rose-50/50 md:bg-transparent">
+               <button onclick="document.getElementById('${rowId}').remove(); recalculateGrandTotal();" class="text-rose-500 font-bold p-2 w-full md:w-auto rounded-lg">✕</button>
+            </td>
+          `;
+
+          // Terapkan border visual status harga acuan (Master vs AI)
+          const priceInput = tr.querySelector(".custom-price-input");
+          if (item.refHtml && item.refHtml.includes("📋 MASTER")) {
+            priceInput.className = "custom-price-input w-28 p-2 border-2 border-emerald-500 rounded-xl font-black bg-emerald-50 text-emerald-900 ml-1 transition-all";
+          } else if (item.refHtml && (item.refHtml.includes("🤖") || item.refHtml.includes("🌐 Link AI"))) {
+            priceInput.className = "custom-price-input w-28 p-2 border-2 border-purple-400 rounded-xl font-bold bg-purple-50/50 text-purple-950 ml-1 transition-all";
+          }
+
+          // Pulihkan atribut history undo/redo
+          if (item.prevPrice) tr.setAttribute("data-prev-price", item.prevPrice);
+          if (item.prevRef) tr.setAttribute("data-prev-ref", item.prevRef);
+          if (item.researchedPrice) tr.setAttribute("data-researched-price", item.researchedPrice);
+          if (item.researchedRef) tr.setAttribute("data-researched-ref", item.researchedRef);
+
+          tbody.appendChild(tr);
+          
+          // Kalkulasi subtotal baris
+          const sub = (item.qty || 0) * (item.unitPrice || 0);
+          tr.querySelector(".subtotal-label").innerText = "Rp " + sub.toLocaleString('id-ID');
+          tr.setAttribute("data-subtotal", sub);
+        });
+      } else {
+        addNewRow();
+      }
+
+      // Pulihkan log chat AI Brainstormer
+      const chatHistoryDiv = document.getElementById("chatHistory");
+      if (chatHistoryDiv && payload.chatMessages && payload.chatMessages.length > 0) {
+        chatHistoryDiv.innerHTML = ""; // Bersihkan placeholder default
+        payload.chatMessages.forEach(msg => {
+          const bubble = document.createElement("div");
+          bubble.className = msg.type === "user" ? "text-right mb-2" : "text-left mb-2";
+          bubble.innerHTML = msg.html;
+          chatHistoryDiv.appendChild(bubble);
+        });
+        chatHistoryDiv.scrollTop = chatHistoryDiv.scrollHeight;
+      }
+
+      // Jalankan kalkulasi total akhir secara live
+      recalculateGrandTotal();
+      showLoading(false);
+      closeRestoreModal(false);
+      showToast("Sesi draf berhasil dipulihkan!", "success");
+      playCompletionChime();
+    } catch (err) {
+      showLoading(false);
+      console.error("Gagal memulihkan draf: ", err);
+      alert("Terjadi kesalahan saat memulihkan draf: " + err.message);
+    }
+  }
+
+  function closeRestoreModal(discard = false) {
+    const modal = document.getElementById("restoreSessionModal");
+    if (modal) {
+      modal.querySelector("div").classList.add("scale-95");
+      modal.classList.add("opacity-0", "pointer-events-none");
+    }
+    if (discard) {
+      localStorage.removeItem("stella_rab_draft_session");
+      showToast("Draf sesi berhasil dihapus.", "info");
+      const tbody = document.getElementById("calculatorBody");
+      if (tbody && tbody.children.length === 0) {
+        addNewRow();
+      }
     }
   }
 </script>

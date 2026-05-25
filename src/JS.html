@@ -260,16 +260,19 @@
     const priceInput = row.querySelector(".custom-price-input");
     priceInput.value = res.data.actualPrice;
     
-    // Tweak Visual Berdasarkan Sumber Data
+
+    // 1. Definisikan semua data terlebih dahulu (PENTING: Mencegah ReferenceError!)
+    const displayUrl = res.data.sourceUrl && res.data.sourceUrl !== "#" ? res.data.sourceUrl : "";
+    const matName = (row.querySelector(".material-name").value || "").trim();
+    // Gunakan selektor .unit-input yang benar (bukan .material-unit)
+    const matUnit = (row.querySelector(".unit-input") ? row.querySelector(".unit-input").value : "ea");
+    
+    // 2. Tweak Visual Berdasarkan Sumber Data
     if (sourceName === "Master Database") {
       priceInput.className = "custom-price-input w-28 p-2 border-2 border-emerald-500 rounded-xl font-black bg-emerald-50 text-emerald-900 ml-1 transition-all";
     } else {
       priceInput.className = "custom-price-input w-28 p-2 border-2 border-purple-400 rounded-xl font-bold bg-purple-50/50 text-purple-950 ml-1 transition-all";
     }
-
-    const displayUrl = res.data.sourceUrl && res.data.sourceUrl !== "#" ? res.data.sourceUrl : "";
-    const matName = (row.querySelector(".material-name").value || "").trim();
-    const matUnit = (row.querySelector(".material-unit") ? row.querySelector(".material-unit").value : "ea");
     
     let refHtml = "";
     if (sourceName === "Master Database") {

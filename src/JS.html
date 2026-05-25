@@ -334,20 +334,7 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
       }
     }).saveNewItemToMaster(payload);
 }
-    row.setAttribute("data-researched-price", res.data.actualPrice);
-    
-    // Pasang tombol kontingensi Undo untuk fleksibilitas user
-    const researchedRefHtml = `<div class="flex flex-col items-center gap-1 mt-1">${refHtml} <button onclick="undoPrice('${rowId}')" title="Kembalikan ke harga sebelum riset" class="text-[9px] text-slate-400 hover:text-slate-700 underline font-medium transition">↩️ Undo Perubahan</button></div>`;
-    row.setAttribute("data-researched-ref", researchedRefHtml);
 
-    row.querySelector(".ref-link-area").innerHTML = researchedRefHtml;
-    calcRow(rowId);
-  } else {
-    row.querySelector(".ref-link-area").innerHTML = `<span class="text-[10px] bg-rose-50 text-rose-600 border border-rose-200 px-2 py-0.5 rounded-md font-black">✕ API Gagal</span>`;
-    row.classList.add("row-failed-flash");
-    showToast(`Pencarian gagal (${sourceName}): ${res.error || 'Harga tidak ditemukan.'}`, "error");
-  }
-}
 
   function undoPrice(rowId) {
     const row = document.getElementById(rowId);

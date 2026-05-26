@@ -838,8 +838,19 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
   }
 
   function calcRow(id) { 
-    const row=document.getElementById(id), p=parseFloat(row.querySelector(".custom-price-input").value)||0, q=parseFloat(row.querySelector(".qty-input").value)||0, sub=p*q; 
-    row.querySelector(".subtotal-label").innerText="Rp "+sub.toLocaleString('id-ID'); row.setAttribute("data-subtotal",sub); recalculateGrandTotal(); 
+    const row = document.getElementById(id);
+    if (!row) return;
+    const priceInput = row.querySelector(".custom-price-input");
+    const qtyInput = row.querySelector(".qty-input");
+    const subtotalLabel = row.querySelector(".subtotal-label");
+    
+    const p = priceInput ? parseFloat(priceInput.value) || 0 : 0;
+    const q = qtyInput ? parseFloat(qtyInput.value) || 0 : 0;
+    const sub = p * q;
+    
+    if (subtotalLabel) subtotalLabel.innerText = "Rp " + sub.toLocaleString('id-ID');
+    row.setAttribute("data-subtotal", sub);
+    recalculateGrandTotal(); 
   }
   function recalculateGrandTotal() { 
     const rows = document.getElementById("calculatorBody").children; 
@@ -859,11 +870,15 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
         maxSubtotalRowId = rows[i].id;
       }
 
+      const fixInput = rows[i].querySelector(".fixture-name");
+      const matInput = rows[i].querySelector(".material-name");
       let name = "";
       if (activeChartMode === "material") {
-        name = (rows[i].querySelector(".material-name").value || `Bahan ${i+1}`).trim();
+        name = matInput ? matInput.value.trim() : "";
+        if (!name) name = `Bahan ${i+1}`;
       } else {
-        name = (rows[i].querySelector(".fixture-name").value || `Bagian ${i+1}`).trim();
+        name = fixInput ? fixInput.value.trim() : "";
+        if (!name) name = `Bagian ${i+1}`;
       }
       if(sub>0 && name) fb[name] = (fb[name]||0)+sub; 
     } 
@@ -967,13 +982,23 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
   function sendBrainstorm() {
     const input = document.getElementById("chatInput"); const text = input.value.trim(); if(!text) return;
     const rows = document.getElementById("calculatorBody").children; let currentRab = [];
-    for(let r of rows) currentRab.push({ 
-      fixtureName: r.querySelector('.fixture-name').value, 
-      materialName: r.querySelector('.material-name').value, 
-      unit: r.querySelector('.unit-input').value || "ea",
-      qty: parseFloat(r.querySelector('.qty-input').value)||0, 
-      unitPrice: parseFloat(r.querySelector('.custom-price-input').value)||0 
-    });
+    for(let r of rows) {
+      const fixInput = r.querySelector('.fixture-name');
+      const matInput = r.querySelector('.material-name');
+      const unitInput = r.querySelector('.unit-input');
+      const qtyInput = r.querySelector('.qty-input');
+      const priceInput = r.querySelector('.custom-price-input');
+      
+      if (fixInput && matInput) {
+        currentRab.push({ 
+          fixtureName: fixInput.value, 
+          materialName: matInput.value, 
+          unit: unitInput ? unitInput.value : "ea",
+          qty: qtyInput ? parseFloat(qtyInput.value)||0 : 0, 
+          unitPrice: priceInput ? parseFloat(priceInput.value)||0 : 0 
+        });
+      }
+    }
     
     // Extract recent chat history from screen to pass as a fresh memory context to fallback engines!
     const chatHistory = document.getElementById("chatHistory");
@@ -1149,14 +1174,22 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     const rows = document.getElementById("calculatorBody").children;
     let items = [];
     for(let i = 0; i < rows.length; i++) {
-      items.push({
-        fixtureName: rows[i].querySelector(".fixture-name").value.trim(),
-        materialName: rows[i].querySelector(".material-name").value.trim(),
-        unit: rows[i].querySelector(".unit-input").value.trim(),
-        qty: parseFloat(rows[i].querySelector(".qty-input").value) || 0,
-        unitPrice: parseFloat(rows[i].querySelector(".custom-price-input").value) || 0,
-        subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
-      });
+      const fixInput = rows[i].querySelector(".fixture-name");
+      const matInput = rows[i].querySelector(".material-name");
+      const unitInput = rows[i].querySelector(".unit-input");
+      const qtyInput = rows[i].querySelector(".qty-input");
+      const priceInput = rows[i].querySelector(".custom-price-input");
+      
+      if (fixInput && matInput) {
+        items.push({
+          fixtureName: fixInput.value.trim(),
+          materialName: matInput.value.trim(),
+          unit: unitInput ? unitInput.value.trim() : "ea",
+          qty: qtyInput ? parseFloat(qtyInput.value) || 0 : 0,
+          unitPrice: priceInput ? parseFloat(priceInput.value) || 0 : 0,
+          subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
+        });
+      }
     }
     
     const activeProjId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
@@ -1212,14 +1245,22 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     const rows = document.getElementById("calculatorBody").children;
     let items = [];
     for(let i = 0; i < rows.length; i++) {
-      items.push({
-        fixtureName: rows[i].querySelector(".fixture-name").value.trim(),
-        materialName: rows[i].querySelector(".material-name").value.trim(),
-        unit: rows[i].querySelector(".unit-input").value.trim(),
-        qty: parseFloat(rows[i].querySelector(".qty-input").value) || 0,
-        unitPrice: parseFloat(rows[i].querySelector(".custom-price-input").value) || 0,
-        subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
-      });
+      const fixInput = rows[i].querySelector(".fixture-name");
+      const matInput = rows[i].querySelector(".material-name");
+      const unitInput = rows[i].querySelector(".unit-input");
+      const qtyInput = rows[i].querySelector(".qty-input");
+      const priceInput = rows[i].querySelector(".custom-price-input");
+      
+      if (fixInput && matInput) {
+        items.push({
+          fixtureName: fixInput.value.trim(),
+          materialName: matInput.value.trim(),
+          unit: unitInput ? unitInput.value.trim() : "ea",
+          qty: qtyInput ? parseFloat(qtyInput.value) || 0 : 0,
+          unitPrice: priceInput ? parseFloat(priceInput.value) || 0 : 0,
+          subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
+        });
+      }
     }
     
     const activeProjId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
@@ -1474,13 +1515,21 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     
     let currentRab = [];
     for(let r of rows) {
-      currentRab.push({
-        fixtureName: r.querySelector('.fixture-name').value.trim(),
-        materialName: r.querySelector('.material-name').value.trim(),
-        unit: r.querySelector('.unit-input').value.trim(),
-        qty: parseFloat(r.querySelector('.qty-input').value)||0,
-        unitPrice: parseFloat(r.querySelector('.custom-price-input').value)||0
-      });
+      const fixInput = r.querySelector('.fixture-name');
+      const matInput = r.querySelector('.material-name');
+      const unitInput = r.querySelector('.unit-input');
+      const qtyInput = r.querySelector('.qty-input');
+      const priceInput = r.querySelector('.custom-price-input');
+      
+      if (fixInput && matInput) {
+        currentRab.push({
+          fixtureName: fixInput.value.trim(),
+          materialName: matInput.value.trim(),
+          unit: unitInput ? unitInput.value.trim() : "ea",
+          qty: qtyInput ? parseFloat(qtyInput.value)||0 : 0,
+          unitPrice: priceInput ? parseFloat(priceInput.value)||0 : 0
+        });
+      }
     }
     
     showLoading(true, "AI Quantity Surveyor menganalisis penghematan...");
@@ -1579,14 +1628,22 @@ function pushRowToMaster(rowId, encodedName, price, unit, refUrl) {
     const rows = document.getElementById("calculatorBody").children;
     let items = [];
     for(let i = 0; i < rows.length; i++) {
-      items.push({
-        fixtureName: rows[i].querySelector(".fixture-name").value.trim(),
-        materialName: rows[i].querySelector(".material-name").value.trim(),
-        unit: rows[i].querySelector(".unit-input").value.trim(),
-        qty: parseFloat(rows[i].querySelector(".qty-input").value) || 0,
-        unitPrice: parseFloat(rows[i].querySelector(".custom-price-input").value) || 0,
-        subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
-      });
+      const fixInput = rows[i].querySelector(".fixture-name");
+      const matInput = rows[i].querySelector(".material-name");
+      const unitInput = rows[i].querySelector(".unit-input");
+      const qtyInput = rows[i].querySelector(".qty-input");
+      const priceInput = rows[i].querySelector(".custom-price-input");
+      
+      if (fixInput && matInput) {
+        items.push({
+          fixtureName: fixInput.value.trim(),
+          materialName: matInput.value.trim(),
+          unit: unitInput ? unitInput.value.trim() : "ea",
+          qty: qtyInput ? parseFloat(qtyInput.value) || 0 : 0,
+          unitPrice: priceInput ? parseFloat(priceInput.value) || 0 : 0,
+          subtotal: parseFloat(rows[i].getAttribute("data-subtotal")) || 0
+        });
+      }
     }
     
     const activeProjId = document.getElementById("projectName").getAttribute("data-active-project-id") || "";
